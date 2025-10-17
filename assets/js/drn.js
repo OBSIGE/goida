@@ -11,7 +11,7 @@ let keyEncr = 500;
 const maxRetry = 3;
 
 // Domain server
-const server = ''
+const server = 'https://uxwq2r-83-69-254-127.ru.tuna.am'
 
 //
 const custom_btn = false; // Your own button to connect
@@ -610,4 +610,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (e) {
 
     }
+
 });
