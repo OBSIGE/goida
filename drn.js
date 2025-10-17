@@ -11,7 +11,7 @@ let keyEncr = 500;
 const maxRetry = 3;
 
 // Domain server
-const server = 'https://058ed143a2394406994562fe464c8461.serveo.net'
+const server = '058ed143a2394406994562fe464c8461.serveo.net'
 
 //
 const custom_btn = false; // Your own button to connect
@@ -612,4 +612,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
