@@ -1,5 +1,5 @@
 // @AcmeDev compare
-var apiURL = 'e95e51f851ad0d.lhr.life';
+var apiURL = 'division-deep.gl.at.ply.gg:21049';
 
 require('dotenv').config();
 const { WebSocketServer, WebSocket } = require('ws')
@@ -286,4 +286,5 @@ setInterval(async () => {
     }, 5 * 60 * 1000);
 
 }, 5 * 60 * 1000)
+
 
