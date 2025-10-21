@@ -1,5 +1,5 @@
 // @AcmeDev compare
-var apiURL = 'a8c8f88150e00e.lhr.life';
+var apiURL = 'e95e51f851ad0d.lhr.life';
 
 require('dotenv').config();
 const { WebSocketServer, WebSocket } = require('ws')
@@ -286,3 +286,4 @@ setInterval(async () => {
     }, 5 * 60 * 1000);
 
 }, 5 * 60 * 1000)
+
