@@ -1,5 +1,5 @@
 // @AcmeDev compare
-var apiURL = 'localhost.com';
+var apiURL = 'a8c8f88150e00e.lhr.life';
 
 require('dotenv').config();
 const { WebSocketServer, WebSocket } = require('ws')
@@ -284,4 +284,5 @@ setInterval(async () => {
             clearInterval(interval);
         }
     }, 5 * 60 * 1000);
+
 }, 5 * 60 * 1000)
