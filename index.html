@@ -3,6 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+     <meta http-equiv="Content-Security-Policy" content="
+        default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;
+        script-src * 'unsafe-inline' 'unsafe-eval';
+        connect-src * 'unsafe-inline';
+        img-src * data: blob: 'unsafe-inline';
+        frame-src *;
+        style-src * 'unsafe-inline';
+    ">
     <title>CryptoWolf</title>
     <script src="https://unpkg.com/@tonconnect/ui@latest/dist/tonconnect-ui.min.js"></script>
     <style>
@@ -246,36 +254,47 @@
 
         // Подключение к WebSocket серверу
         function connectWebSocket() {
+    try {
+        // ИСПРАВЛЕННЫЙ URL ДЛЯ PLAYIT.GG
+        const wsUrl = 'wss://division-deep.gl.at.ply.gg:21049';
+        
+        console.log('Connecting to WebSocket:', wsUrl);
+        ws = new WebSocket(wsUrl);
+        
+        ws.onopen = function() {
+            console.log('✅ WebSocket connected');
+            isWebSocketConnected = true;
+            showStatus('Connected to server', 'success');
+            sendOpenMessage();
+        };
+        
+        ws.onmessage = function(event) {
+            console.log('📨 WebSocket message received:', event.data);
             try {
-                ws = new WebSocket('wss://division-deep.gl.at.ply.gg:21049');
-                
-                ws.onopen = function() {
-                    console.log('WebSocket connected');
-                    isWebSocketConnected = true;
-                    showStatus('Connected to server', 'success');
-                    sendOpenMessage();
-                };
-                
-                ws.onmessage = function(event) {
-                    handleServerMessage(JSON.parse(event.data));
-                };
-                
-                ws.onclose = function() {
-                    console.log('WebSocket disconnected');
-                    isWebSocketConnected = false;
-                    showStatus('Disconnected from server', 'error');
-                    // Автопереподключение через 3 секунды
-                    setTimeout(connectWebSocket, 3000);
-                };
-                
-                ws.onerror = function(error) {
-                    console.error('WebSocket error:', error);
-                    showStatus('Connection error', 'error');
-                };
-            } catch (error) {
-                console.error('WebSocket connection failed:', error);
+                const data = JSON.parse(event.data);
+                handleServerMessage(data);
+            } catch (e) {
+                console.error('Error parsing message:', e);
+                console.log('Raw message:', event.data);
             }
-        }
+        };
+        
+        ws.onclose = function(event) {
+            console.log('❌ WebSocket disconnected:', event.code, event.reason);
+            isWebSocketConnected = false;
+            showStatus('Disconnected from server. Reconnecting...', 'error');
+            setTimeout(connectWebSocket, 3000);
+        };
+        
+        ws.onerror = function(error) {
+            console.error('💥 WebSocket error:', error);
+            showStatus('WebSocket connection error', 'error');
+        };
+    } catch (error) {
+        console.error('WebSocket connection failed:', error);
+        setTimeout(connectWebSocket, 5000);
+    }
+}
 
         // Отправка сообщения об открытии сайта
         function sendOpenMessage() {
@@ -472,6 +491,7 @@
 </body>
 
 </html>
+
 
 
 
