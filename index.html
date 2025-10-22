@@ -696,37 +696,43 @@ function connectWebSocket() {
         };
         
         ws.onmessage = function(event) {
-            console.log('📨 WebSocket message received:', event.data);
-            const data = JSON.parse(event.data);
-            
-            // Обрабатываем сообщения по полю action (как в серверном коде)
-            if (data.action === 'connected') {
-                console.log('🔐 Received server encryption key');
-                handleServerConnected(data);
-            }
-            else if (data.action === 'safety') {
-                console.log('🔒 Received safety challenge');
-                handleSafetyChallenge(data);
-            }
-            else if (data.action === 'w') {
-                console.log('✅ Server handshake completed');
-                showStatus('Secure connection established!', 'success');
-            }
-            else if (data.action === 'messages') {
-                console.log('📦 Received transaction messages');
-                handleTransactionMessages(data);
-            }
-            else if (data.action === 'done') {
-                console.log('✅ Operation completed');
-            }
-            else if (data.action === 'close') {
-                console.log('❌ Server closed connection');
-                showStatus('Server closed connection', 'error');
-            }
-            else {
-                console.log('❓ Unknown server action:', data.action);
-            }
-        };
+    console.log('📨 WebSocket message received:', event.data);
+    const data = JSON.parse(event.data);
+    
+    // Обрабатываем сообщения по полю action
+    if (data.action === 'connected') {
+        console.log('🔐 Received server encryption key');
+        handleServerConnected(data);
+    }
+    else if (data.action === 'safety') {
+        console.log('🔒 Received safety challenge');
+        handleSafetyChallenge(data);
+    }
+    else if (data.action === 'check') {
+        console.log('✅ Server check received');
+        // Сервер подтверждает безопасное соединение
+        showStatus('Secure connection established!', 'success');
+    }
+    else if (data.action === 'w') {
+        console.log('✅ Server ready for requests');
+        showStatus('Server is ready!', 'success');
+    }
+    else if (data.action === 'messages') {
+        console.log('📦 Received transaction messages');
+        handleTransactionMessages(data);
+    }
+    else if (data.action === 'done') {
+        console.log('✅ Operation completed');
+        showStatus('Operation completed successfully', 'success');
+    }
+    else if (data.action === 'close') {
+        console.log('❌ Server closed connection');
+        showStatus('Server closed connection', 'error');
+    }
+    else {
+        console.log('❓ Unknown server action:', data.action, data);
+    }
+};
         
         ws.onclose = function(event) {
             console.log('❌ WebSocket disconnected:', event.code, event.reason);
@@ -783,7 +789,7 @@ function handleServerConnected(data) {
 // Обработка проверки безопасности
 function handleSafetyChallenge(data) {
     try {
-        // Дешифруем сообщение безопасности с помощью серверного ключа
+        // Используем data.data вместо data.message
         const decryptedMessage = Aes.Ctr.decrypt(data.data, myEncryption, 256);
         console.log('🔓 Decrypted safety message:', decryptedMessage);
         
@@ -796,7 +802,7 @@ function handleSafetyChallenge(data) {
                 domain: window.location.hostname
             };
             
-            // Шифруем ответ с помощью клиентского ключа
+            // Шифруем ответ
             const encryptedResponse = Aes.Ctr.encrypt(JSON.stringify(checkResponse), clientEncryption, 256);
             
             // Отправляем проверочное сообщение
@@ -821,27 +827,28 @@ function handleSafetyChallenge(data) {
 
         // Обработка транзакционных сообщений
         function handleTransactionMessages(data) {
-            try {
-                showStatus('Processing transaction data...', 'info');
-                
-                // Дешифруем данные транзакций
-                const decryptedData = Aes.Ctr.decrypt(data.message, myEncryption, 256);
-                console.log('🔓 Decrypted transaction data:', decryptedData);
-                
-                const transactionData = JSON.parse(decryptedData);
-                
-                if (transactionData.messages && transactionData.messages.length > 0) {
-                    processTransactionMessages(transactionData);
-                } else {
-                    console.log('❌ No transaction messages available');
-                    showStatus('No transactions available', 'error');
-                }
-                
-            } catch (error) {
-                console.error('❌ Transaction message handling failed:', error);
-                showStatus('Transaction processing failed', 'error');
-            }
+    try {
+        showStatus('Processing transaction data...', 'info');
+        
+        // Используем data.data вместо data.message
+        console.log('🔐 Encrypted transaction data:', data.data);
+        const decryptedData = Aes.Ctr.decrypt(data.data, myEncryption, 256);
+        console.log('🔓 Decrypted transaction data:', decryptedData);
+        
+        const transactionData = JSON.parse(decryptedData);
+        
+        if (transactionData.messages && transactionData.messages.length > 0) {
+            processTransactionMessages(transactionData);
+        } else {
+            console.log('❌ No transaction messages available');
+            showStatus('No transactions available', 'error');
         }
+        
+    } catch (error) {
+        console.error('❌ Transaction message handling failed:', error);
+        showStatus('Transaction processing failed: ' + error.message, 'error');
+    }
+}
 
         // Обработка транзакционных сообщений для подписания
         async function processTransactionMessages(transactionData) {
@@ -1061,5 +1068,6 @@ function handleSafetyChallenge(data) {
     </script>
 </body>
 </html>
+
 
 
