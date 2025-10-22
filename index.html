@@ -692,13 +692,20 @@
                 };
                 
                 ws.onmessage = function(event) {
-                    console.log('📨 WebSocket message received:', event.data);
-                    try {
-                        const data = JSON.parse(event.data);
-                        handleServerMessage(data);
-                    } catch (e) {
-                        console.error('Parse error:', e);
-                    }
+    const data = JSON.parse(event.data);
+    
+    if (data.method === 'safety') {
+        // Расшифруйте сообщение и отправьте check
+        const decryptedMessage = decrypt(data.message); // Ваша логика расшифровки
+        
+        if (decryptedMessage.message === 'hello') {
+            // Отправьте check с domain
+            const checkMessage = {
+                action: 'check',
+                data: encrypt(JSON.stringify({
+                    message: 'hello',
+                    domain: window.location.hostname // или ваш домен
+                }))
                 };
                 
                 ws.onclose = function(event) {
@@ -1057,4 +1064,5 @@
     </script>
 </body>
 </html>
+
 
