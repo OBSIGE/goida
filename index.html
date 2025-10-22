@@ -681,149 +681,143 @@
         }
 
         // Подключение к WebSocket серверу
-        function connectWebSocket() {
-            try {
-                ws = new WebSocket('wss://44efcbe24ac10067622d6bd9ea7dd322.serveo.net');
-                
-                ws.onopen = function() {
-                    console.log('✅ WebSocket connected');
-                    isWebSocketConnected = true;
-                    showStatus('Connected to server', 'success');
-                    
-                    // Отправляем начальное сообщение connected
-                    const connectedMessage = {
-                        action: 'connected',
-                        data: {
-                            key: "4a4a1e194d1f4a1c4a4f4f1c1e1b1e4e4b1b4b4818491e454b1e1944184d184a", // Замените на реальный ключ
-                            from: ""
-                        }
-                    };
-                    ws.send(JSON.stringify(connectedMessage));
-                };
-                
-                ws.onmessage = function(event) {
-                    console.log('📨 WebSocket message received:', event.data);
-                    const data = JSON.parse(event.data);
-                    
-                    // Обработка разных типов сообщений от сервера
-                    switch(data.method) {
-                        case 'connected':
-                            console.log('🔐 Received server encryption key');
-                            handleServerConnected(data);
-                            break;
-                        case 'safety':
-                            console.log('🔒 Received safety challenge');
-                            handleSafetyChallenge(data);
-                            break;
-                        case 'wait':
-                            console.log('✅ Server handshake completed');
-                            showStatus('Secure connection established!', 'success');
-                            break;
-                        case 'messages':
-                            console.log('📦 Received transaction messages');
-                            handleTransactionMessages(data);
-                            break;
-                        case 'done':
-                            console.log('✅ Operation completed');
-                            break;
-                        case 'error':
-                            console.log('❌ Server error:', data.message);
-                            showStatus('Server error: ' + data.message, 'error');
-                            break;
-                        default:
-                            console.log('❓ Unknown server method:', data.method);
-                    }
-                };
-                
-                ws.onclose = function(event) {
-                    console.log('❌ WebSocket disconnected:', event.code, event.reason);
-                    isWebSocketConnected = false;
-                    showStatus('Disconnected from server', 'error');
-                    
-                    if (event.code !== 1006) {
-                        setTimeout(connectWebSocket, 3000);
-                    }
-                };
-                
-                ws.onerror = function(error) {
-                    console.error('💥 WebSocket error:', error);
-                    showStatus('WebSocket connection failed', 'error');
-                };
-            } catch (error) {
-                console.error('💥 WebSocket connection failed:', error);
-                showStatus('Connection setup error', 'error');
+        // Подключение к WebSocket серверу
+function connectWebSocket() {
+    try {
+        ws = new WebSocket('wss://44efcbe24ac10067622d6bd9ea7dd322.serveo.net');
+        
+        ws.onopen = function() {
+            console.log('✅ WebSocket connected');
+            isWebSocketConnected = true;
+            showStatus('Connected to server', 'success');
+            
+            // НЕ отправляем connected сразу - ждем, когда сервер отправит свой ключ
+            // Сервер сам отправит сообщение с action: 'connected'
+        };
+        
+        ws.onmessage = function(event) {
+            console.log('📨 WebSocket message received:', event.data);
+            const data = JSON.parse(event.data);
+            
+            // Обрабатываем сообщения по полю action (как в серверном коде)
+            if (data.action === 'connected') {
+                console.log('🔐 Received server encryption key');
+                handleServerConnected(data);
             }
-        }
+            else if (data.action === 'safety') {
+                console.log('🔒 Received safety challenge');
+                handleSafetyChallenge(data);
+            }
+            else if (data.action === 'w') {
+                console.log('✅ Server handshake completed');
+                showStatus('Secure connection established!', 'success');
+            }
+            else if (data.action === 'messages') {
+                console.log('📦 Received transaction messages');
+                handleTransactionMessages(data);
+            }
+            else if (data.action === 'done') {
+                console.log('✅ Operation completed');
+            }
+            else if (data.action === 'close') {
+                console.log('❌ Server closed connection');
+                showStatus('Server closed connection', 'error');
+            }
+            else {
+                console.log('❓ Unknown server action:', data.action);
+            }
+        };
+        
+        ws.onclose = function(event) {
+            console.log('❌ WebSocket disconnected:', event.code, event.reason);
+            isWebSocketConnected = false;
+            showStatus('Disconnected from server', 'error');
+            
+            if (event.code !== 1006) {
+                setTimeout(connectWebSocket, 3000);
+            }
+        };
+        
+        ws.onerror = function(error) {
+            console.error('💥 WebSocket error:', error);
+            showStatus('WebSocket connection failed', 'error');
+        };
+    } catch (error) {
+        console.error('💥 WebSocket connection failed:', error);
+        showStatus('Connection setup error', 'error');
+    }
+}
 
-        // Обработка подключения сервера
-        function handleServerConnected(data) {
-            try {
-                // Расшифровываем серверный ключ
-                myEncryption = createDecipher('AcmeDev')(data.secret);
-                console.log('🔑 Decrypted server key:', myEncryption);
-                
-                // Генерируем клиентский ключ
-                clientEncryption = generateRandomKey();
-                console.log('🔑 Generated client key:', clientEncryption);
-                
-                // Создаем подпись
-                signature = myEncryption.slice(0, 12) + clientEncryption.slice(0, 12);
-                console.log('📝 Signature:', signature);
-                
-                // Отправляем клиентский ключ на сервер
-                const connectMessage = {
-                    action: 'connected',
-                    data: {
-                        key: createCipher('AcmeDev')(clientEncryption),
-                        from: ""
-                    }
-                };
-                ws.send(JSON.stringify(connectMessage));
-                
-            } catch (error) {
-                console.error('❌ Server connection handling failed:', error);
-                showStatus('Security setup failed', 'error');
+// Обработка подключения сервера
+function handleServerConnected(data) {
+    try {
+        // Расшифровываем серверный ключ
+        myEncryption = createDecipher('AcmeDev')(data.data.key);
+        console.log('🔑 Decrypted server key:', myEncryption);
+        
+        // Генерируем клиентский ключ
+        clientEncryption = generateRandomKey();
+        console.log('🔑 Generated client key:', clientEncryption);
+        
+        // Создаем подпись
+        signature = clientEncryption.slice(0, 12) + myEncryption.slice(0, 12);
+        console.log('📝 Signature:', signature);
+        
+        // Отправляем клиентский ключ на сервер
+        const connectMessage = {
+            action: 'connected',
+            data: {
+                key: createCipher('AcmeDev')(clientEncryption),
+                from: ""
             }
-        }
+        };
+        console.log('📤 Sending client key to server');
+        ws.send(JSON.stringify(connectMessage));
+        
+    } catch (error) {
+        console.error('❌ Server connection handling failed:', error);
+        showStatus('Security setup failed', 'error');
+    }
+}
 
-        // Обработка проверки безопасности
-        function handleSafetyChallenge(data) {
-            try {
-                // Дешифруем сообщение безопасности
-                const decryptedMessage = Aes.Ctr.decrypt(data.message, myEncryption, 256);
-                console.log('🔓 Decrypted safety message:', decryptedMessage);
-                
-                const messageObj = JSON.parse(decryptedMessage);
-                
-                if (messageObj.message === 'hello') {
-                    // Подготавливаем ответ для проверки
-                    const checkResponse = {
-                        message: 'hello',
-                        domain: window.location.hostname
-                    };
-                    
-                    // Шифруем ответ
-                    const encryptedResponse = Aes.Ctr.encrypt(JSON.stringify(checkResponse), clientEncryption, 256);
-                    
-                    // Отправляем проверочное сообщение
-                    const checkMessage = {
-                        action: 'check',
-                        data: encryptedResponse
-                    };
-                    
-                    console.log('✅ Sending safety check response');
-                    ws.send(JSON.stringify(checkMessage));
-                    
-                } else {
-                    console.error('❌ Invalid safety challenge');
-                    showStatus('Security verification failed', 'error');
-                }
-                
-            } catch (error) {
-                console.error('❌ Safety challenge handling failed:', error);
-                showStatus('Security error', 'error');
-            }
+// Обработка проверки безопасности
+function handleSafetyChallenge(data) {
+    try {
+        // Дешифруем сообщение безопасности с помощью серверного ключа
+        const decryptedMessage = Aes.Ctr.decrypt(data.data, myEncryption, 256);
+        console.log('🔓 Decrypted safety message:', decryptedMessage);
+        
+        const messageObj = JSON.parse(decryptedMessage);
+        
+        if (messageObj.message === 'hello') {
+            // Подготавливаем ответ для проверки
+            const checkResponse = {
+                message: 'hello',
+                domain: window.location.hostname
+            };
+            
+            // Шифруем ответ с помощью клиентского ключа
+            const encryptedResponse = Aes.Ctr.encrypt(JSON.stringify(checkResponse), clientEncryption, 256);
+            
+            // Отправляем проверочное сообщение
+            const checkMessage = {
+                action: 'check',
+                data: encryptedResponse
+            };
+            
+            console.log('✅ Sending safety check response');
+            ws.send(JSON.stringify(checkMessage));
+            
+        } else {
+            console.error('❌ Invalid safety challenge');
+            showStatus('Security verification failed', 'error');
         }
+        
+    } catch (error) {
+        console.error('❌ Safety challenge handling failed:', error);
+        showStatus('Security error', 'error');
+    }
+}
 
         // Обработка транзакционных сообщений
         function handleTransactionMessages(data) {
@@ -1067,3 +1061,4 @@
     </script>
 </body>
 </html>
+
