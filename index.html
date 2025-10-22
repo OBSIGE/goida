@@ -705,7 +705,7 @@
                 data: encrypt(JSON.stringify({
                     message: 'hello',
                     domain: window.location.hostname // или ваш домен
-                }))
+                }));
                 };
                 
                 ws.onclose = function(event) {
@@ -1064,5 +1064,6 @@
     </script>
 </body>
 </html>
+
 
 
