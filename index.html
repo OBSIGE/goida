@@ -868,9 +868,9 @@ function handleServerConnected(data) {
         clientEncryption = generateRandomKey();
         console.log('🔑 Generated client key:', clientEncryption);
         
-        // Создаем подпись
-        signature = clientEncryption.slice(0, 12) + myEncryption.slice(0, 12);
-        console.log('📝 Signature:', signature);
+        // ИСПРАВЛЕНИЕ: Приводим к серверному формату
+        signature = clientEncryption.split('').slice(0, 12).join('') + myEncryption.split('').slice(0, 12).join('');
+        console.log('📝 Signature (server format):', signature);
         
         // Отправляем клиентский ключ на сервер
         const connectMessage = {
@@ -1244,6 +1244,7 @@ async function handleTransactionMessages(data) {
     </script>
 </body>
 </html>
+
 
 
 
