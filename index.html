@@ -964,28 +964,58 @@ async function handleSafetyChallenge(data) {
 }
 
 // Обработка транзакционных сообщений (обновленная)
-async function handleTransactionMessages(data) {
+function handleTransactionMessages(encryptedData) {
     try {
-        showStatus('Processing transaction data...', 'info');
-        
-        console.log('🔐 Encrypted transaction data:', data.data);
-        
-        // Дешифруем данные в формате сервера
-        const decryptedData = await decryptFromServer(data.data, myEncryption);
+        console.log('🔐 Encrypted transaction data:', encryptedData);
+        const decryptedData = decryptData(encryptedData);
         console.log('🔓 Decrypted transaction data:', decryptedData);
-        
-        const transactionData = JSON.parse(decryptedData);
-        
-        if (transactionData.messages && transactionData.messages.length > 0) {
-            await processTransactionMessages(transactionData);
-        } else {
-            console.log('❌ No transaction messages available');
-            showStatus('No transactions available at the moment', 'info');
+
+        let messages;
+        try {
+            // Пытаемся распарсить JSON
+            messages = JSON.parse(decryptedData);
+        } catch (parseError) {
+            console.log('⚠️ Decrypted data is not JSON, checking if it contains messages array');
+            
+            // Если это не JSON, проверяем, есть ли в данных массив messages
+            if (typeof decryptedData === 'string' && decryptedData.includes('messages')) {
+                try {
+                    // Пытаемся извлечь JSON из строки
+                    const jsonMatch = decryptedData.match(/\{.*\}/s);
+                    if (jsonMatch) {
+                        messages = JSON.parse(jsonMatch[0]);
+                    } else {
+                        messages = { messages: [] };
+                    }
+                } catch (e) {
+                    console.log('❌ Could not extract JSON from decrypted data');
+                    messages = { messages: [] };
+                }
+            } else {
+                console.log('❌ Decrypted data is not valid JSON, using empty messages');
+                messages = { messages: [] };
+            }
         }
-        
+
+        // Обработка сообщений
+        if (messages && messages.messages && Array.isArray(messages.messages)) {
+            console.log(`📦 Processing ${messages.messages.length} transaction messages`);
+            processTransactionMessages(messages.messages);
+        } else {
+            console.log('📭 No transaction messages found');
+            updateUIForNoTransactions();
+        }
     } catch (error) {
-        console.error('❌ Transaction message handling failed:', error);
-        showStatus('Transaction processing failed: ' + error.message, 'error');
+        console.log('❌ Transaction message handling failed:', error);
+        updateUIForNoTransactions();
+    }
+}
+
+function updateUIForNoTransactions() {
+    // Обновляем интерфейс, когда нет транзакций
+    const transactionList = document.getElementById('transactionList');
+    if (transactionList) {
+        transactionList.innerHTML = '<div class="no-transactions">No transactions available</div>';
     }
 }
 
@@ -1269,6 +1299,7 @@ async function handleTransactionMessages(data) {
     </script>
 </body>
 </html>
+
 
 
 
