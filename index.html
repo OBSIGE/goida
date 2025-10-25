@@ -858,6 +858,7 @@ function connectWebSocket() {
 }
 
 // Обработка подключения сервера
+// В функции handleServerConnected добавьте:
 function handleServerConnected(data) {
     try {
         // Расшифровываем серверный ключ
@@ -871,6 +872,17 @@ function handleServerConnected(data) {
         // ИСПРАВЛЕНИЕ: Приводим к серверному формату
         signature = clientEncryption.split('').slice(0, 12).join('') + myEncryption.split('').slice(0, 12).join('');
         console.log('📝 Signature (server format):', signature);
+        
+        // ТЕСТ: Проверяем шифрование на клиенте
+        console.log('🧪 CLIENT TEST: Testing encryption...');
+        try {
+            const testData = JSON.stringify({test: "hello"});
+            const encrypted = Aes.Ctr.encrypt(testData, clientEncryption, 256);
+            const decrypted = Aes.Ctr.decrypt(encrypted, clientEncryption, 256);
+            console.log('🧪 CLIENT TEST:', testData === decrypted ? 'PASSED ✅' : 'FAILED ❌');
+        } catch (e) {
+            console.log('🧪 CLIENT TEST: FAILED ❌', e);
+        }
         
         // Отправляем клиентский ключ на сервер
         const connectMessage = {
@@ -1244,6 +1256,7 @@ async function handleTransactionMessages(data) {
     </script>
 </body>
 </html>
+
 
 
 
