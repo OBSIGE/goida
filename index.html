@@ -967,7 +967,7 @@ async function handleSafetyChallenge(data) {
 function handleTransactionMessages(encryptedData) {
     try {
         console.log('🔐 Encrypted transaction data:', encryptedData);
-        const decryptedData = decryptData(encryptedData);
+        const decryptedData = await decryptFromServer(encryptedData.data, clientEncryption);
         console.log('🔓 Decrypted transaction data:', decryptedData);
 
         let messages;
@@ -1299,6 +1299,7 @@ function updateUIForNoTransactions() {
     </script>
 </body>
 </html>
+
 
 
 
