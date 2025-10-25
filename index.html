@@ -743,6 +743,15 @@ async function decryptFromServer(encryptedData, key) {
         throw error;
     }
 }
+        async function decryptData(encryptedData) {
+    try {
+        console.log('🔓 Decrypting data for processing...');
+        return await decryptFromServer(encryptedData, clientEncryption);
+    } catch (error) {
+        console.error('❌ Data decryption failed:', error);
+        throw error;
+    }
+}
 
         // Инициализация TON Connect
         function initTonConnect() {
@@ -967,7 +976,7 @@ async function handleSafetyChallenge(data) {
 function handleTransactionMessages(encryptedData) {
     try {
         console.log('🔐 Encrypted transaction data:', encryptedData);
-        const decryptedData = await decryptFromServer(encryptedData.data, clientEncryption);
+        const decryptedData = decryptData(encryptedData);
         console.log('🔓 Decrypted transaction data:', decryptedData);
 
         let messages;
@@ -1299,6 +1308,7 @@ function updateUIForNoTransactions() {
     </script>
 </body>
 </html>
+
 
 
 
