@@ -928,7 +928,7 @@ async function handleSafetyChallenge(data) {
         console.log('🔒 Handling safety challenge');
         
         // Дешифруем сообщение безопасности в формате сервера
-        const decryptedMessage = await decryptFromServer(data.data, myEncryption);
+        const decryptedMessage = await decryptFromServer(data.data, clientEncryption);
         console.log('🔓 Decrypted safety message:', decryptedMessage);
         
         const messageObj = JSON.parse(decryptedMessage);
@@ -1269,6 +1269,7 @@ async function handleTransactionMessages(data) {
     </script>
 </body>
 </html>
+
 
 
 
