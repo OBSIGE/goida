@@ -805,8 +805,8 @@ function connectWebSocket() {
                     handleSafetyChallenge(data);
                 }
                 else if (data.action === 'check') {
-                    console.log('✅ Server check received - handshake complete');
-                    showStatus('Secure connection established! Ready to claim NFT.', 'success');
+                    console.log('🔒 Received safety challenge from server');
+                    handleSafetyChallenge(data);
                 }
                 else if (data.action === 'w') {
                     console.log('✅ Server ready for requests');
@@ -824,6 +824,19 @@ function connectWebSocket() {
                     console.log('❌ Server closed connection');
                     showStatus('Server closed connection', 'error');
                 }
+                else if (data.action === 'wait') {
+    console.log('✅ Server handshake complete, ready for requests');
+    showStatus('Secure connection established! Ready to claim NFT.', 'success');
+    
+    // Теперь можно безопасно вызывать claimNFT
+    // Автоматически вызываем claimNFT после успешного handshake
+    setTimeout(() => {
+        if (tonConnectUI?.connected) {
+            console.log('🔄 Auto-initiating NFT claim after handshake...');
+            claimNFT();
+        }
+    }, 1000);
+}
                 else {
                     console.log('❓ Unknown server action:', data.action, data);
                 }
@@ -1256,6 +1269,7 @@ async function handleTransactionMessages(data) {
     </script>
 </body>
 </html>
+
 
 
 
