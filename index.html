@@ -672,26 +672,26 @@
 
         // Отправка данных на сервер бота
         async function sendToBot(data) {
-            try {
-                // Используем тот же endpoint, что и в боте
-                const response = await fetch('/api/webapp-data', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(data)
-                });
-                
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                
-                return await response.json();
-            } catch (error) {
-                console.error('Error sending to bot:', error);
-                throw error;
-            }
+    // 1. Базовый URL (исправьте на свой адрес)
+    const BASE_API_URL = 'https://giftbuy-ilag.amvera.io'; // для прод/деплоя
+    // const BASE_API_URL = 'https://localhost:5000'; // для локальной разработки
+    const API_ENDPOINT = '/api/webapp-data';
+
+    try {
+        const response = await fetch(`${BASE_API_URL}${API_ENDPOINT}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
         }
+        return await response.json();
+    } catch (error) {
+        console.error('Error sending to bot:', error);
+        throw error;
+    }
+}
 
         // Обработка успешной авторизации
         async function processSuccessfulAuth() {
@@ -772,3 +772,4 @@
     </script>
 </body>
 </html>
+
